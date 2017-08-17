@@ -64,6 +64,9 @@ enum {
   l_bluestore_state_aio_wait_lat,
   l_bluestore_state_io_done_lat,
   l_bluestore_state_kv_queued_lat,
+  l_bluestore_state_kv_submitted_all_lat,
+  l_bluestore_state_kv_deferred_lat,
+  l_bluestore_state_kv_begin_finalize_lat,
   l_bluestore_state_kv_committing_lat,
   l_bluestore_state_kv_done_lat,
   l_bluestore_state_deferred_queued_lat,
@@ -1506,6 +1509,9 @@ public:
       case l_bluestore_state_aio_wait_lat: return "aio_wait";
       case l_bluestore_state_io_done_lat: return "io_done";
       case l_bluestore_state_kv_queued_lat: return "kv_queued";
+      case l_bluestore_state_kv_submitted_all_lat: return "kv_submitted_all";
+      case l_bluestore_state_kv_begin_finalize_lat: return "kv_begin_finalize_lat";
+      case l_bluestore_state_kv_deferred_lat: return "kv_deferred_lat";
       case l_bluestore_state_kv_committing_lat: return "kv_committing";
       case l_bluestore_state_kv_done_lat: return "kv_done";
       case l_bluestore_state_deferred_queued_lat: return "deferred_queued";
@@ -1807,6 +1813,7 @@ public:
   // --------------------------------------------------------
   // members
 private:
+  utime_t perf_last_stamp;
   BlueFS *bluefs = nullptr;
   unsigned bluefs_shared_bdev = 0;  ///< which bluefs bdev we are sharing
   bool bluefs_single_shared_device = true;
@@ -2028,6 +2035,7 @@ private:
   void _osr_drain_all();
   void _osr_unregister_all();
 
+  void _dump_perf_counter(); 
   void _kv_start();
   void _kv_stop();
   void _kv_sync_thread();

@@ -167,6 +167,7 @@ void PerfCounters::inc(int idx, uint64_t amt)
   if (!m_cct->_conf->perf)
     return;
 
+  Mutex::Locker lck(m_lock);
   assert(idx > m_lower_bound);
   assert(idx < m_upper_bound);
   perf_counter_data_any_d& data(m_data[idx - m_lower_bound - 1]);
@@ -186,6 +187,7 @@ void PerfCounters::dec(int idx, uint64_t amt)
   if (!m_cct->_conf->perf)
     return;
 
+  Mutex::Locker lck(m_lock);
   assert(idx > m_lower_bound);
   assert(idx < m_upper_bound);
   perf_counter_data_any_d& data(m_data[idx - m_lower_bound - 1]);
@@ -235,6 +237,7 @@ void PerfCounters::tinc(int idx, utime_t amt, uint32_t avgcount)
   if (!m_cct->_conf->perf)
     return;
 
+  Mutex::Locker lck(m_lock);
   assert(idx > m_lower_bound);
   assert(idx < m_upper_bound);
   perf_counter_data_any_d& data(m_data[idx - m_lower_bound - 1]);
@@ -302,6 +305,7 @@ void PerfCounters::hinc(int idx, int64_t x, int64_t y)
   if (!m_cct->_conf->perf)
     return;
 
+  Mutex::Locker lck(m_lock);
   assert(idx > m_lower_bound);
   assert(idx < m_upper_bound);
 
@@ -330,6 +334,7 @@ pair<uint64_t, uint64_t> PerfCounters::get_tavg_ms(int idx) const
 
 void PerfCounters::reset()
 {
+  assert(m_lock.is_locked());
   perf_counter_data_vec_t::iterator d = m_data.begin();
   perf_counter_data_vec_t::iterator d_end = m_data.end();
 
@@ -342,6 +347,7 @@ void PerfCounters::reset()
 void PerfCounters::dump_formatted_generic(Formatter *f, bool schema,
     bool histograms, const std::string &counter)
 {
+  Mutex::Locker lck(m_lock);
   f->open_object_section(m_name.c_str());
   
   for (perf_counter_data_vec_t::const_iterator d = m_data.begin();
@@ -450,6 +456,7 @@ void PerfCounters::dump_formatted_generic(Formatter *f, bool schema,
     }
   }
   f->close_section();
+  reset();
 }
 
 const std::string &PerfCounters::get_name() const

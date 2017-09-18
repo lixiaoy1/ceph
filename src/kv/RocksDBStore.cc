@@ -28,6 +28,7 @@ using std::string;
 #include "RocksDBStore.h"
 
 #include "common/debug.h"
+#include "os/kv.h"
 
 #define dout_context cct
 #define dout_subsys ceph_subsys_rocksdb
@@ -812,10 +813,34 @@ RocksDBStore::RocksDBTransactionImpl::RocksDBTransactionImpl(RocksDBStore *_db)
   db = _db;
 }
 
+void RocksDBStore::RocksDBTransactionImpl::add_operations(char type, const string &key, uint32_t value_len)
+{
+  switch (key[0]) {
+	  case 'S':
+	  case 'T':
+	  case 'C':
+	  case 'O':
+	  case 'M':
+	  case 'P':
+	  case 'L':
+	  case 'B':
+	  case 'b':
+	  case 'X':
+		  break;
+	  default:
+		  assert(key[0] == 'S');
+			 
+  }
+  operation_seqs.push_back(type);
+  _key_encode_u32(key.length(), &operation_seqs);
+  operation_seqs.append(key);
+  _key_encode_u32(value_len, &operation_seqs);
+}
+
 void RocksDBStore::RocksDBTransactionImpl::put_bat(
-  rocksdb::WriteBatch& bat,
+  rocksdb::WriteBatch& bat, 
   rocksdb::ColumnFamilyHandle *cf,
-  const string &key,
+  const string &key, 
   const bufferlist &to_set_bl)
 {
   // bufferlist::c_str() is non-constant, so we can't call c_str()
@@ -833,6 +858,10 @@ void RocksDBStore::RocksDBTransactionImpl::put_bat(
   }
 }
 
+string RocksDBStore::RocksDBTransactionImpl::get_operation_seqs() {
+  return operation_seqs;
+}
+
 void RocksDBStore::RocksDBTransactionImpl::set(
   const string &prefix,
   const string &k,
@@ -845,6 +874,8 @@ void RocksDBStore::RocksDBTransactionImpl::set(
     string key = combine_strings(prefix, k);
     put_bat(bat, db->default_cf, key, to_set_bl);
   }
+  string key = combine_strings(prefix, k);
+  add_operations(0, key, to_set_bl.length()); //
 }
 
 void RocksDBStore::RocksDBTransactionImpl::set(
@@ -861,6 +892,9 @@ void RocksDBStore::RocksDBTransactionImpl::set(
     combine_strings(prefix, k, keylen, &key);
     put_bat(bat, cf, key, to_set_bl);
   }
+  string key;
+  combine_strings(prefix, k, keylen, &key);
+  add_operations(0, key, to_set_bl.length()); //
 }
 
 void RocksDBStore::RocksDBTransactionImpl::rmkey(const string &prefix,
@@ -870,8 +904,11 @@ void RocksDBStore::RocksDBTransactionImpl::rmkey(const string &prefix,
   if (cf) {
     bat.Delete(cf, rocksdb::Slice(k));
   } else {
+    string key = combine_strings(prefix, k);
     bat.Delete(db->default_cf, combine_strings(prefix, k));
   }
+  string key = combine_strings(prefix, k);
+  add_operations(1, key, 0);  //deletion
 }
 
 void RocksDBStore::RocksDBTransactionImpl::rmkey(const string &prefix,
@@ -886,6 +923,9 @@ void RocksDBStore::RocksDBTransactionImpl::rmkey(const string &prefix,
     combine_strings(prefix, k, keylen, &key);
     bat.Delete(db->default_cf, rocksdb::Slice(key));
   }
+  string key;
+  combine_strings(prefix, k, keylen, &key);
+  add_operations(1, key, 0);  //deletion
 }
 
 void RocksDBStore::RocksDBTransactionImpl::rm_single_key(const string &prefix,
@@ -897,6 +937,8 @@ void RocksDBStore::RocksDBTransactionImpl::rm_single_key(const string &prefix,
   } else {
     bat.SingleDelete(db->default_cf, combine_strings(prefix, k));
   }
+  string key = combine_strings(prefix, k);
+  add_operations(2, key, 0);  //single deletion
 }
 
 void RocksDBStore::RocksDBTransactionImpl::rmkeys_by_prefix(const string &prefix)
@@ -912,6 +954,7 @@ void RocksDBStore::RocksDBTransactionImpl::rmkeys_by_prefix(const string &prefix
 	   it->valid();
 	   it->next()) {
 	bat.Delete(cf, rocksdb::Slice(it->key()));
+        add_operations(1, combine_strings(prefix, it->key()), 0);
       }
     }
   } else {
@@ -927,6 +970,7 @@ void RocksDBStore::RocksDBTransactionImpl::rmkeys_by_prefix(const string &prefix
 	   it->valid();
 	   it->next()) {
 	bat.Delete(db->default_cf, combine_strings(prefix, it->key()));
+        add_operations(1, combine_strings(prefix, it->key()), 0);
       }
     }
   }
@@ -948,6 +992,7 @@ void RocksDBStore::RocksDBTransactionImpl::rm_range_keys(const string &prefix,
 	  break;
 	}
 	bat.Delete(cf, rocksdb::Slice(it->key()));
+        add_operations(1, combine_strings(prefix, it->key()), 0);
 	it->next();
       }
     }
@@ -966,6 +1011,7 @@ void RocksDBStore::RocksDBTransactionImpl::rm_range_keys(const string &prefix,
 	}
 	bat.Delete(db->default_cf,
 		   combine_strings(prefix, it->key()));
+        add_operations(1, combine_strings(prefix, it->key()), 0);
 	it->next();
       }
     }
@@ -977,6 +1023,9 @@ void RocksDBStore::RocksDBTransactionImpl::merge(
   const string &k,
   const bufferlist &to_set_bl)
 {
+  string key = combine_strings(prefix, k);
+  add_operations(3, key, to_set_bl.length()); //merge
+
   auto cf = db->get_cf_handle(prefix);
   if (cf) {
     // bufferlist::c_str() is non-constant, so we can't call c_str()

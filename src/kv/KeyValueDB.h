@@ -47,6 +47,10 @@ public:
 	set(prefix, it->first, it->second);
     }
 
+    virtual string get_operation_seqs() {
+      return NULL;
+    }
+
     /// Set Keys (via encoded bufferlist)
     void set(
       const std::string &prefix,      ///< [in] prefix, or CF name

@@ -1855,6 +1855,9 @@ private:
   deque<DeferredBatch*> deferred_done_queue;   ///< deferred ios done
   deque<DeferredBatch*> deferred_stable_queue; ///< deferred ios done + stable
 
+  string all_operations;
+  char file_num = 0;
+
   KVFinalizeThread kv_finalize_thread;
   std::mutex kv_finalize_lock;
   std::condition_variable kv_finalize_cond;

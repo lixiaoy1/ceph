@@ -430,7 +430,8 @@ class Infiniband {
               int ib_physical_port,  ibv_srq *srq,
               Infiniband::CompletionQueue* txcq,
               Infiniband::CompletionQueue* rxcq,
-              uint32_t tx_queue_len, uint32_t max_recv_wr, uint32_t q_key = 0);
+              uint32_t tx_queue_len, uint32_t max_recv_wr,
+              RDMAConnMgr *cmgr, uint32_t q_key = 0);
     ~QueuePair();
 
     int init();
@@ -491,12 +492,15 @@ class Infiniband {
     uint32_t     q_key;
     bool dead;
     std::atomic<uint32_t> tx_wr_inflight = {0}; // counter for inflight Tx WQEs
+    RDMAConnMgr *cmgr;
+
+    void destroy_qp();
   };
 
  public:
   typedef MemoryManager::Cluster Cluster;
   typedef MemoryManager::Chunk Chunk;
-  QueuePair* create_queue_pair(CephContext *c, CompletionQueue*, CompletionQueue*, ibv_qp_type type);
+  QueuePair* create_queue_pair(CephContext *c, CompletionQueue*, CompletionQueue*, ibv_qp_type type, RDMAConnMgr *cmgr);
   ibv_srq* create_shared_receive_queue(uint32_t max_wr, uint32_t max_sge);
   // post rx buffers to srq, return number of buffers actually posted
   int  post_chunks_to_srq(int num);

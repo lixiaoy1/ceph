@@ -1,0 +1,644 @@
+diff --git a/src/msg/async/rdma/Infiniband.cc b/src/msg/async/rdma/Infiniband.cc
+index 0f82554..3d53155 100644
+--- a/src/msg/async/rdma/Infiniband.cc
++++ b/src/msg/async/rdma/Infiniband.cc
+@@ -152,7 +152,8 @@ Infiniband::QueuePair::QueuePair(
+     CephContext *c, Infiniband& infiniband, ibv_qp_type type,
+     int port, ibv_srq *srq,
+     Infiniband::CompletionQueue* txcq, Infiniband::CompletionQueue* rxcq,
+-    uint32_t tx_queue_len, uint32_t rx_queue_len, uint32_t q_key)
++    uint32_t tx_queue_len, uint32_t rx_queue_len,
++    RDMAConnMgr *cmgr, uint32_t q_key)
+ : cct(c), infiniband(infiniband),
+   type(type),
+   ctxt(infiniband.device->ctxt),
+@@ -166,7 +167,8 @@ Infiniband::QueuePair::QueuePair(
+   max_send_wr(tx_queue_len),
+   max_recv_wr(rx_queue_len),
+   q_key(q_key),
+-  dead(false)
++  dead(false),
++  cmgr(cmgr)
+ {
+   initial_psn = lrand48() & 0xffffff;
+   if (type != IBV_QPT_RC && type != IBV_QPT_UD && type != IBV_QPT_RAW_PACKET) {
+@@ -190,7 +192,7 @@ int Infiniband::QueuePair::init()
+   qpia.qp_type = type;                 // RC, UC, UD, or XRC
+   qpia.sq_sig_all = 0;                 // only generate CQEs on requested WQEs
+ 
+-  qp = ibv_create_qp(pd, &qpia);
++  qp = cmgr->qp_create(pd, &qpia);
+   if (qp == NULL) {
+     lderr(cct) << __func__ << " failed to create queue pair" << cpp_strerror(errno) << dendl;
+     if (errno == ENOMEM) {
+@@ -231,7 +233,7 @@ int Infiniband::QueuePair::init()
+ 
+   int ret = ibv_modify_qp(qp, &qpa, mask);
+   if (ret) {
+-    ibv_destroy_qp(qp);
++    destroy_qp();
+     lderr(cct) << __func__ << " failed to transition to INIT state: "
+                << cpp_strerror(errno) << dendl;
+     return -1;
+@@ -973,10 +975,14 @@ int Infiniband::get_tx_buffers(std::vector<Chunk*> &c, size_t bytes)
+  *      QueuePair on success or NULL if init fails
+  * See QueuePair::QueuePair for parameter documentation.
+  */
+-Infiniband::QueuePair* Infiniband::create_queue_pair(CephContext *cct, CompletionQueue *tx, CompletionQueue* rx, ibv_qp_type type)
++Infiniband::QueuePair* Infiniband::create_queue_pair(CephContext *cct,
++                                                     CompletionQueue *tx,
++                                                     CompletionQueue* rx,
++                                                     ibv_qp_type type,
++                                                     RDMAConnMgr *cmgr)
+ {
+   Infiniband::QueuePair *qp = new QueuePair(
+-      cct, *this, type, ib_physical_port, srq, tx, rx, tx_queue_len, rx_queue_len);
++      cct, *this, type, ib_physical_port, srq, tx, rx, tx_queue_len, rx_queue_len, cmgr);
+   if (qp->init()) {
+     delete qp;
+     return NULL;
+@@ -1137,10 +1143,24 @@ Infiniband::QueuePair::~QueuePair()
+ {
+   if (qp) {
+     ldout(cct, 20) << __func__ << " destroy qp=" << qp << dendl;
+-    assert(!ibv_destroy_qp(qp));
++    destroy_qp();
++    cmgr->put();
+   }
+ }
+ 
++void Infiniband::QueuePair::destroy_qp()
++{
++  if (!qp)
++    return;
++
++  ldout(cct, 20) << __func__ << " destroy qp=" << qp << dendl;
++
++  cmgr->qp_destroy();
++
++  qp = nullptr;
++}
++
++
+ /**
+  * Given a string representation of the `status' field from Verbs
+  * struct `ibv_wc'.
+diff --git a/src/msg/async/rdma/Infiniband.h b/src/msg/async/rdma/Infiniband.h
+index 677c037..d6d2e2d 100644
+--- a/src/msg/async/rdma/Infiniband.h
++++ b/src/msg/async/rdma/Infiniband.h
+@@ -430,7 +430,8 @@ class Infiniband {
+               int ib_physical_port,  ibv_srq *srq,
+               Infiniband::CompletionQueue* txcq,
+               Infiniband::CompletionQueue* rxcq,
+-              uint32_t tx_queue_len, uint32_t max_recv_wr, uint32_t q_key = 0);
++              uint32_t tx_queue_len, uint32_t max_recv_wr,
++              RDMAConnMgr *cmgr, uint32_t q_key = 0);
+     ~QueuePair();
+ 
+     int init();
+@@ -491,12 +492,15 @@ class Infiniband {
+     uint32_t     q_key;
+     bool dead;
+     std::atomic<uint32_t> tx_wr_inflight = {0}; // counter for inflight Tx WQEs
++    RDMAConnMgr *cmgr;
++
++    void destroy_qp();
+   };
+ 
+  public:
+   typedef MemoryManager::Cluster Cluster;
+   typedef MemoryManager::Chunk Chunk;
+-  QueuePair* create_queue_pair(CephContext *c, CompletionQueue*, CompletionQueue*, ibv_qp_type type);
++  QueuePair* create_queue_pair(CephContext *c, CompletionQueue*, CompletionQueue*, ibv_qp_type type, RDMAConnMgr *cmgr);
+   ibv_srq* create_shared_receive_queue(uint32_t max_wr, uint32_t max_sge);
+   // post rx buffers to srq, return number of buffers actually posted
+   int  post_chunks_to_srq(int num);
+diff --git a/src/msg/async/rdma/RDMAConnectedSocketImpl.cc b/src/msg/async/rdma/RDMAConnectedSocketImpl.cc
+index 2bb7a2c..f8842de 100644
+--- a/src/msg/async/rdma/RDMAConnectedSocketImpl.cc
++++ b/src/msg/async/rdma/RDMAConnectedSocketImpl.cc
+@@ -22,21 +22,17 @@
+ 
+ RDMAConnectedSocketImpl::RDMAConnectedSocketImpl(CephContext *cct, Infiniband* ib, RDMADispatcher* s,
+ 						 RDMAWorker *w)
+-  : cct(cct), connected(0), error(0), infiniband(ib),
++  : cct(cct), error(0), infiniband(ib),
+     dispatcher(s), worker(w), lock("RDMAConnectedSocketImpl::lock"),
+-    is_server(false), con_handler(new C_handle_connection(this)),
+-    active(false), pending(false)
++    pending(false)
+ {
+-  qp = infiniband->create_queue_pair(
+-				     cct, s->get_tx_cq(), s->get_rx_cq(), IBV_QPT_RC);
+-  my_msg.qpn = qp->get_local_qp_number();
+-  my_msg.psn = qp->get_initial_psn();
+-  my_msg.lid = infiniband->get_lid();
+-  my_msg.peer_qpn = 0;
+-  my_msg.gid = infiniband->get_gid();
+-  notify_fd = dispatcher->register_qp(qp, this);
+-  dispatcher->perf_logger->inc(l_msgr_rdma_created_queue_pair);
+-  dispatcher->perf_logger->inc(l_msgr_rdma_active_queue_pair);
++  int fd = eventfd(0, EFD_CLOEXEC|EFD_NONBLOCK);
++  assert(fd >= 0);
++
++  if (cct->_conf->ms_async_rdma_cm)
++    cmgr = new RDMAConnCM(cct, this, ib, s, w, info);
++  else
++    cmgr = new RDMAConnTCP(cct, this, ib, s, w, info); 
+ }
+ 
+ RDMAConnectedSocketImpl::~RDMAConnectedSocketImpl()
+@@ -56,9 +52,9 @@ RDMAConnectedSocketImpl::~RDMAConnectedSocketImpl()
+   Mutex::Locker l(lock);
+   if (notify_fd >= 0)
+     ::close(notify_fd);
+-  if (tcp_fd >= 0)
+-    ::close(tcp_fd);
+   error = ECONNRESET;
++  cmgr->set_orphan();
++  cmgr = nullptr;
+ }
+ 
+ void RDMAConnectedSocketImpl::pass_wc(std::vector<ibv_wc> &&v)
+@@ -79,180 +75,8 @@ void RDMAConnectedSocketImpl::get_wc(std::vector<ibv_wc> &w)
+   w.swap(wc);
+ }
+ 
+-int RDMAConnectedSocketImpl::activate()
+-{
+-  ibv_qp_attr qpa;
+-  int r;
+-
+-  // now connect up the qps and switch to RTR
+-  memset(&qpa, 0, sizeof(qpa));
+-  qpa.qp_state = IBV_QPS_RTR;
+-  qpa.path_mtu = IBV_MTU_1024;
+-  qpa.dest_qp_num = peer_msg.qpn;
+-  qpa.rq_psn = peer_msg.psn;
+-  qpa.max_dest_rd_atomic = 1;
+-  qpa.min_rnr_timer = 12;
+-  //qpa.ah_attr.is_global = 0;
+-  qpa.ah_attr.is_global = 1;
+-  qpa.ah_attr.grh.hop_limit = 6;
+-  qpa.ah_attr.grh.dgid = peer_msg.gid;
+-
+-  qpa.ah_attr.grh.sgid_index = infiniband->get_device()->get_gid_idx();
+-
+-  qpa.ah_attr.dlid = peer_msg.lid;
+-  qpa.ah_attr.sl = cct->_conf->ms_async_rdma_sl;
+-  qpa.ah_attr.grh.traffic_class = cct->_conf->ms_async_rdma_dscp;
+-  qpa.ah_attr.src_path_bits = 0;
+-  qpa.ah_attr.port_num = (uint8_t)(infiniband->get_ib_physical_port());
+-
+-  ldout(cct, 20) << __func__ << " Choosing gid_index " << (int)qpa.ah_attr.grh.sgid_index << ", sl " << (int)qpa.ah_attr.sl << dendl;
+-
+-  r = ibv_modify_qp(qp->get_qp(), &qpa, IBV_QP_STATE |
+-      IBV_QP_AV |
+-      IBV_QP_PATH_MTU |
+-      IBV_QP_DEST_QPN |
+-      IBV_QP_RQ_PSN |
+-      IBV_QP_MIN_RNR_TIMER |
+-      IBV_QP_MAX_DEST_RD_ATOMIC);
+-  if (r) {
+-    lderr(cct) << __func__ << " failed to transition to RTR state: "
+-               << cpp_strerror(errno) << dendl;
+-    return -1;
+-  }
+-
+-  ldout(cct, 20) << __func__ << " transition to RTR state successfully." << dendl;
+-
+-  // now move to RTS
+-  qpa.qp_state = IBV_QPS_RTS;
+-
+-  // How long to wait before retrying if packet lost or server dead.
+-  // Supposedly the timeout is 4.096us*2^timeout.  However, the actual
+-  // timeout appears to be 4.096us*2^(timeout+1), so the setting
+-  // below creates a 135ms timeout.
+-  qpa.timeout = 14;
+-
+-  // How many times to retry after timeouts before giving up.
+-  qpa.retry_cnt = 7;
+-
+-  // How many times to retry after RNR (receiver not ready) condition
+-  // before giving up. Occurs when the remote side has not yet posted
+-  // a receive request.
+-  qpa.rnr_retry = 7; // 7 is infinite retry.
+-  qpa.sq_psn = my_msg.psn;
+-  qpa.max_rd_atomic = 1;
+-
+-  r = ibv_modify_qp(qp->get_qp(), &qpa, IBV_QP_STATE |
+-      IBV_QP_TIMEOUT |
+-      IBV_QP_RETRY_CNT |
+-      IBV_QP_RNR_RETRY |
+-      IBV_QP_SQ_PSN |
+-      IBV_QP_MAX_QP_RD_ATOMIC);
+-  if (r) {
+-    lderr(cct) << __func__ << " failed to transition to RTS state: "
+-               << cpp_strerror(errno) << dendl;
+-    return -1;
+-  }
+-
+-  // the queue pair should be ready to use once the client has finished
+-  // setting up their end.
+-  ldout(cct, 20) << __func__ << " transition to RTS state successfully." << dendl;
+-  ldout(cct, 20) << __func__ << " QueuePair: " << qp << " with qp:" << qp->get_qp() << dendl;
+-
+-  if (!is_server) {
+-    connected = 1; //indicate successfully
+-    ldout(cct, 20) << __func__ << " handle fake send, wake it up. QP: " << my_msg.qpn << dendl;
+-    submit(false);
+-  }
+-  active = true;
+-
+-  return 0;
+-}
+-
+ int RDMAConnectedSocketImpl::try_connect(const entity_addr_t& peer_addr, const SocketOptions &opts) {
+-  ldout(cct, 20) << __func__ << " nonblock:" << opts.nonblock << ", nodelay:"
+-                 << opts.nodelay << ", rbuf_size: " << opts.rcbuf_size << dendl;
+-  NetHandler net(cct);
+-  tcp_fd = net.connect(peer_addr, opts.connect_bind_addr);
+-
+-  if (tcp_fd < 0) {
+-    return -errno;
+-  }
+-  net.set_close_on_exec(tcp_fd);
+-
+-  int r = net.set_socket_options(tcp_fd, opts.nodelay, opts.rcbuf_size);
+-  if (r < 0) {
+-    ::close(tcp_fd);
+-    tcp_fd = -1;
+-    return -errno;
+-  }
+-
+-  ldout(cct, 20) << __func__ << " tcp_fd: " << tcp_fd << dendl;
+-  net.set_priority(tcp_fd, opts.priority, peer_addr.get_family());
+-  my_msg.peer_qpn = 0;
+-  r = infiniband->send_msg(cct, tcp_fd, my_msg);
+-  if (r < 0)
+-    return r;
+-
+-  worker->center.create_file_event(tcp_fd, EVENT_READABLE, con_handler);
+-  return 0;
+-}
+-
+-void RDMAConnectedSocketImpl::handle_connection() {
+-  ldout(cct, 20) << __func__ << " QP: " << my_msg.qpn << " tcp_fd: " << tcp_fd << " notify_fd: " << notify_fd << dendl;
+-  int r = infiniband->recv_msg(cct, tcp_fd, peer_msg);
+-  if (r <= 0) {
+-    if (r != -EAGAIN) {
+-      dispatcher->perf_logger->inc(l_msgr_rdma_handshake_errors);
+-      ldout(cct, 1) << __func__ << " recv handshake msg failed." << dendl;
+-      fault();
+-    }
+-    return;
+-  }
+-
+-  if (1 == connected) {
+-    ldout(cct, 1) << __func__ << " warnning: logic failed: read len: " << r << dendl;
+-    fault();
+-    return;
+-  }
+-
+-  if (!is_server) {// syn + ack from server
+-    my_msg.peer_qpn = peer_msg.qpn;
+-    ldout(cct, 20) << __func__ << " peer msg :  < " << peer_msg.qpn << ", " << peer_msg.psn
+-                   <<  ", " << peer_msg.lid << ", " << peer_msg.peer_qpn << "> " << dendl;
+-    if (!connected) {
+-      r = activate();
+-      assert(!r);
+-    }
+-    notify();
+-    r = infiniband->send_msg(cct, tcp_fd, my_msg);
+-    if (r < 0) {
+-      ldout(cct, 1) << __func__ << " send client ack failed." << dendl;
+-      dispatcher->perf_logger->inc(l_msgr_rdma_handshake_errors);
+-      fault();
+-    }
+-  } else {
+-    if (peer_msg.peer_qpn == 0) {// syn from client
+-      if (active) {
+-        ldout(cct, 10) << __func__ << " server is already active." << dendl;
+-        return ;
+-      }
+-      r = activate();
+-      assert(!r);
+-      r = infiniband->send_msg(cct, tcp_fd, my_msg);
+-      if (r < 0) {
+-        ldout(cct, 1) << __func__ << " server ack failed." << dendl;
+-        dispatcher->perf_logger->inc(l_msgr_rdma_handshake_errors);
+-        fault();
+-        return ;
+-      }
+-    } else { // ack from client
+-      connected = 1;
+-      ldout(cct, 10) << __func__ << " handshake of rdma is done. server connected: " << connected << dendl;
+-      //cleanup();
+-      submit(false);
+-      notify();
+-    }
+-  }
++  return cmgr->try_connect(peer_addr, opts);
+ }
+ 
+ ssize_t RDMAConnectedSocketImpl::read(char* buf, size_t len)
+@@ -266,7 +90,7 @@ ssize_t RDMAConnectedSocketImpl::read(char* buf, size_t len)
+     return -EAGAIN;
+   }
+   
+-  if (0 == connected) {
++  if (0 == cmgr->connected) {
+     ldout(cct, 1) << __func__ << " when ib not connected. len: " << len <<dendl;
+     return -EAGAIN;
+   }
+@@ -300,7 +124,7 @@ ssize_t RDMAConnectedSocketImpl::read(char* buf, size_t len)
+     worker->perf_logger->inc(l_msgr_rdma_rx_bytes, response->byte_len);
+     if (response->byte_len == 0) {
+       dispatcher->perf_logger->inc(l_msgr_rdma_rx_fin);
+-      if (connected) {
++      if (cmgr->connected) {
+         error = ECONNRESET;
+         ldout(cct, 20) << __func__ << " got remote close msg..." << dendl;
+       }
+@@ -321,12 +145,7 @@ ssize_t RDMAConnectedSocketImpl::read(char* buf, size_t len)
+   }
+ 
+   worker->perf_logger->inc(l_msgr_rdma_rx_chunks, cqe.size());
+-  if (is_server && connected == 0) {
+-    ldout(cct, 20) << __func__ << " we do not need last handshake, QP: " << my_msg.qpn << " peer QP: " << peer_msg.qpn << dendl;
+-    connected = 1; //if so, we don't need the last handshake
+-    cleanup();
+-    submit(false);
+-  }
++  cmgr->post_read();
+ 
+   if (!buffers.empty()) {
+     notify();
+@@ -411,7 +230,7 @@ ssize_t RDMAConnectedSocketImpl::zero_copy_read(bufferptr &data)
+ ssize_t RDMAConnectedSocketImpl::send(bufferlist &bl, bool more)
+ {
+   if (error) {
+-    if (!active)
++    if (!cmgr->active)
+       return -EPIPE;
+     return -error;
+   }
+@@ -421,7 +240,7 @@ ssize_t RDMAConnectedSocketImpl::send(bufferlist &bl, bool more)
+   {
+     Mutex::Locker l(lock);
+     pending_bl.claim_append(bl);
+-    if (!connected) {
++    if (!cmgr->connected) {
+       ldout(cct, 20) << __func__ << " fake send to upper, QP: " << my_msg.qpn << dendl;
+       return bytes;
+     }
+diff --git a/src/msg/async/rdma/RDMAServerSocketImpl.cc b/src/msg/async/rdma/RDMAServerSocketImpl.cc
+index 6e473d1..dc1fa52 100644
+--- a/src/msg/async/rdma/RDMAServerSocketImpl.cc
++++ b/src/msg/async/rdma/RDMAServerSocketImpl.cc
+@@ -21,12 +21,37 @@
+ #undef dout_prefix
+ #define dout_prefix *_dout << " RDMAServerSocketImpl "
+ 
++RDMAServerSocketImpl *RDMAServerSocketImpl::factory(CephContext *cct,
++                                                    Infiniband *ib,
++                                                    RDMADispatcher *s,
++                                                    RDMAWorker *w,
++                                                    entity_addr_t& a)
++{
++  if (cct->_conf->ms_async_rdma_cm)
++    return new RDMAServerConnCM(cct, ib, s, w, a);
++
++  return new RDMAServerConnTCP(cct, ib, s, w, a);
++}
++
+ RDMAServerSocketImpl::RDMAServerSocketImpl(CephContext *cct, Infiniband* i, RDMADispatcher *s, RDMAWorker *w, entity_addr_t& a)
+-  : cct(cct), net(cct), server_setup_socket(-1), infiniband(i), dispatcher(s), worker(w), sa(a)
++  : cct(cct), infiniband(i), dispatcher(s), worker(w), sa(a)
+ {
+ }
+ 
+-int RDMAServerSocketImpl::listen(entity_addr_t &sa, const SocketOptions &opt)
++RDMAServerConnTCP::RDMAServerConnTCP(CephContext *cct, Infiniband* i, RDMADispatcher *s, RDMAWorker *w, entity_addr_t& a)
++  : RDMAServerSocketImpl(cct, i, s, w, a), net(cct), server_setup_socket(-1)
++{
++  ibdev = infiniband->get_device(cct->_conf->ms_async_rdma_device_name.c_str());
++  ibport = cct->_conf->ms_async_rdma_port_num;
++
++  assert(ibdev);
++  assert(ibport > 0);
++
++  ibdev->init(ibport);
++}
++
++
++int RDMAServerConnTCP::listen(entity_addr_t &sa, const SocketOptions &opt)
+ {
+   int rc = 0;
+   server_setup_socket = net.create_socket(sa.get_family(), true);
+@@ -72,7 +97,7 @@ err:
+   return rc;
+ }
+ 
+-int RDMAServerSocketImpl::accept(ConnectedSocket *sock, const SocketOptions &opt, entity_addr_t *out, Worker *w)
++int RDMAServerConnTCP::accept(ConnectedSocket *sock, const SocketOptions &opt, entity_addr_t *out, Worker *w)
+ {
+   ldout(cct, 15) << __func__ << dendl;
+ 
+@@ -113,8 +138,126 @@ int RDMAServerSocketImpl::accept(ConnectedSocket *sock, const SocketOptions &opt
+   return 0;
+ }
+ 
+-void RDMAServerSocketImpl::abort_accept()
++void RDMAServerConnTCP::abort_accept()
+ {
+   if (server_setup_socket >= 0)
+     ::close(server_setup_socket);
+ }
++
++RDMAServerConnCM::RDMAServerConnCM(CephContext *cct, Infiniband *ib, RDMADispatcher *s, RDMAWorker *w, entity_addr_t& a)
++  : RDMAServerSocketImpl(cct, ib, s, w, a), channel(nullptr), listen_id(nullptr)
++{
++  int err;
++
++  channel = rdma_create_event_channel();
++  assert(channel);
++
++  err = rdma_create_id(channel, &listen_id, this, RDMA_PS_TCP);
++  assert(!err);
++}
++
++RDMAServerConnCM::~RDMAServerConnCM()
++{
++  rdma_destroy_id(listen_id);
++  rdma_destroy_event_channel(channel);
++}
++
++int RDMAServerConnCM::listen(entity_addr_t &sa, const SocketOptions &opt)
++{
++  int err;
++
++  err = rdma_bind_addr(listen_id, (struct sockaddr *)sa.get_sockaddr());
++  if (err) {
++    err = -errno;
++    ldout(cct, 10) << __func__ << " unable to bind to " << sa.get_sockaddr()
++                   << " on port " << sa.get_port() << ": " << cpp_strerror(errno) << dendl;
++    goto err;
++  }
++
++  err = rdma_listen(listen_id, 128);
++  if (err) {
++    err = -errno;
++    lderr(cct) << __func__ << " unable to listen on " << sa << ": " << cpp_strerror(errno) << dendl;
++    goto err;
++  }
++
++  ldout(cct, 1) << __func__ << " bind to " << sa.get_sockaddr() << " on port " << sa.get_port()  << dendl;
++
++  return 0;
++
++err:
++  return err;
++}
++
++int RDMAServerConnCM::accept(ConnectedSocket *sock, const SocketOptions &opt, entity_addr_t *out, Worker *w)
++{
++  struct rdma_cm_event *event;
++  RDMAConnectedSocketImpl *socket;
++  int ret;
++
++  ldout(cct, 15) << __func__ << dendl;
++
++  struct pollfd pfd = {
++    .fd = channel->fd,
++    .events = POLLIN,
++  };
++
++  // rmda_get_cm_event() is blocking even if fd is nonblocking - need to
++  // poll() before calling it.
++  ret = ::poll(&pfd, 1, 0);
++  assert(ret >= 0);
++  if (!ret)
++    return -EAGAIN;
++
++  ret = rdma_get_cm_event(channel, &event);
++  if (ret) {
++    lderr(cct) << __func__ << " error getting cm event: " << cpp_strerror(errno) << dendl;
++    ceph_abort();
++  }
++
++  ldout(cct, 1) << __func__ << " CM event: " << rdma_event_str(event->event) << dendl;
++
++  assert(event->event == RDMA_CM_EVENT_CONNECT_REQUEST);
++
++  struct rdma_cm_id *new_id = event->id;
++  struct rdma_conn_param *peer = &event->param.conn;
++  struct rdma_conn_param conn_param;
++
++  rdma_ack_cm_event(event);
++
++  RDMAConnCMInfo conn_info = {
++    .id = new_id,
++    .remote_qpn = peer->qp_num,
++  };
++  socket = new RDMAConnectedSocketImpl(cct, infiniband, dispatcher, dynamic_cast<RDMAWorker*>(w), &conn_info);
++  assert(socket);
++
++  memset(&conn_param, 0, sizeof(conn_param));
++  conn_param.qp_num = socket->local_qpn;
++  conn_param.srq = 1;
++
++  ret = rdma_accept(new_id, &conn_param);
++  assert(!ret);
++
++  ldout(cct, 20) << __func__ << " accepted a new QP" << dendl;
++
++  std::unique_ptr<RDMAConnectedSocketImpl> csi(socket);
++  *sock = ConnectedSocket(std::move(csi));
++  if (out) {
++    struct sockaddr *addr = &new_id->route.addr.dst_addr;
++    out->set_sockaddr(addr);
++  }
++
++  return 0;
++}
++
++void RDMAServerConnCM::abort_accept()
++{
++  rdma_destroy_id(listen_id);
++  rdma_destroy_event_channel(channel);
++}
++
++int RDMAServerConnCM::fd() const
++{
++  return channel->fd;
++}
+diff --git a/src/msg/async/rdma/RDMAStack.cc b/src/msg/async/rdma/RDMAStack.cc
+index 7671a35..991ba18 100644
+--- a/src/msg/async/rdma/RDMAStack.cc
++++ b/src/msg/async/rdma/RDMAStack.cc
+@@ -322,13 +322,11 @@ void RDMADispatcher::notify_pending_workers() {
+ 
+ int RDMADispatcher::register_qp(QueuePair *qp, RDMAConnectedSocketImpl* csi)
+ {
+-  int fd = eventfd(0, EFD_CLOEXEC|EFD_NONBLOCK);
+-  assert(fd >= 0);
+   Mutex::Locker l(lock);
+   assert(!qp_conns.count(qp->get_local_qp_number()));
+   qp_conns[qp->get_local_qp_number()] = std::make_pair(qp, csi);
+   ++num_qp_conn;
+-  return fd;
++  return 0;
+ }
+ 
+ RDMAConnectedSocketImpl* RDMADispatcher::get_conn_lockless(uint32_t qp)
+@@ -493,7 +491,7 @@ int RDMAWorker::listen(entity_addr_t &sa, const SocketOptions &opt,ServerSocket
+   get_stack()->get_infiniband().init();
+   dispatcher->polling_start();
+ 
+-  auto p = new RDMAServerSocketImpl(cct, &get_stack()->get_infiniband(), &get_stack()->get_dispatcher(), this, sa);
++  auto p = RDMAServerSocketImpl::factory(cct, &get_stack()->get_infiniband(), &get_stack()->get_dispatcher(), this, sa);
+   int r = p->listen(sa, opt);
+   if (r < 0) {
+     delete p;
+diff --git a/src/msg/async/rdma/RDMAStack.h b/src/msg/async/rdma/RDMAStack.h
+index 58d063a..1ddecd4 100644
+--- a/src/msg/async/rdma/RDMAStack.h
++++ b/src/msg/async/rdma/RDMAStack.h
+@@ -178,6 +178,7 @@ class RDMAConnectedSocketImpl : public ConnectedSocketImpl {
+   int connected;
+   int error;
+   Infiniband* infiniband;
++  RDMAConnMgr *cmgr;
+   RDMADispatcher* dispatcher;
+   RDMAWorker* worker;
+   std::vector<Chunk*> buffers;
+@@ -187,7 +188,6 @@ class RDMAConnectedSocketImpl : public ConnectedSocketImpl {
+   Mutex lock;
+   std::vector<ibv_wc> wc;
+   bool is_server;
+-  EventCallbackRef con_handler;
+   int tcp_fd = -1;
+   bool active;// qp is active ?
+   bool pending;
+@@ -222,19 +222,6 @@ class RDMAConnectedSocketImpl : public ConnectedSocketImpl {
+   int try_connect(const entity_addr_t&, const SocketOptions &opt);
+   bool is_pending() {return pending;}
+   void set_pending(bool val) {pending = val;}
+-  class C_handle_connection : public EventCallback {
+-    RDMAConnectedSocketImpl *csi;
+-    bool active;
+-   public:
+-    C_handle_connection(RDMAConnectedSocketImpl *w): csi(w), active(true) {}
+-    void do_request(uint64_t fd) {
+-      if (active)
+-        csi->handle_connection();
+-    }
+-    void close() {
+-      active = false;
+-    }
+-  };
+ };
+ 
+ class RDMAServerSocketImpl : public ServerSocketImpl {

@@ -152,7 +152,8 @@ Infiniband::QueuePair::QueuePair(
     CephContext *c, Infiniband& infiniband, ibv_qp_type type,
     int port, ibv_srq *srq,
     Infiniband::CompletionQueue* txcq, Infiniband::CompletionQueue* rxcq,
-    uint32_t tx_queue_len, uint32_t rx_queue_len, uint32_t q_key)
+    uint32_t tx_queue_len, uint32_t rx_queue_len,
+    RDMAConnMgr *cmgr, uint32_t q_key)
 : cct(c), infiniband(infiniband),
   type(type),
   ctxt(infiniband.device->ctxt),
@@ -166,7 +167,8 @@ Infiniband::QueuePair::QueuePair(
   max_send_wr(tx_queue_len),
   max_recv_wr(rx_queue_len),
   q_key(q_key),
-  dead(false)
+  dead(false),
+  cmgr(cmgr)
 {
   initial_psn = lrand48() & 0xffffff;
   if (type != IBV_QPT_RC && type != IBV_QPT_UD && type != IBV_QPT_RAW_PACKET) {
@@ -190,7 +192,7 @@ int Infiniband::QueuePair::init()
   qpia.qp_type = type;                 // RC, UC, UD, or XRC
   qpia.sq_sig_all = 0;                 // only generate CQEs on requested WQEs
 
-  qp = ibv_create_qp(pd, &qpia);
+  qp = cmgr->qp_create(pd, &qpia);
   if (qp == NULL) {
     lderr(cct) << __func__ << " failed to create queue pair" << cpp_strerror(errno) << dendl;
     if (errno == ENOMEM) {
@@ -231,7 +233,7 @@ int Infiniband::QueuePair::init()
 
   int ret = ibv_modify_qp(qp, &qpa, mask);
   if (ret) {
-    ibv_destroy_qp(qp);
+    destroy_qp();
     lderr(cct) << __func__ << " failed to transition to INIT state: "
                << cpp_strerror(errno) << dendl;
     return -1;
@@ -973,10 +975,14 @@ int Infiniband::get_tx_buffers(std::vector<Chunk*> &c, size_t bytes)
  *      QueuePair on success or NULL if init fails
  * See QueuePair::QueuePair for parameter documentation.
  */
-Infiniband::QueuePair* Infiniband::create_queue_pair(CephContext *cct, CompletionQueue *tx, CompletionQueue* rx, ibv_qp_type type)
+Infiniband::QueuePair* Infiniband::create_queue_pair(CephContext *cct,
+                                                     CompletionQueue *tx,
+                                                     CompletionQueue* rx,
+                                                     ibv_qp_type type,
+                                                     RDMAConnMgr *cmgr)
 {
   Infiniband::QueuePair *qp = new QueuePair(
-      cct, *this, type, ib_physical_port, srq, tx, rx, tx_queue_len, rx_queue_len);
+      cct, *this, type, ib_physical_port, srq, tx, rx, tx_queue_len, rx_queue_len, cmgr);
   if (qp->init()) {
     delete qp;
     return NULL;
@@ -1137,9 +1143,23 @@ Infiniband::QueuePair::~QueuePair()
 {
   if (qp) {
     ldout(cct, 20) << __func__ << " destroy qp=" << qp << dendl;
-    assert(!ibv_destroy_qp(qp));
+    destroy_qp();
+    cmgr->put();
   }
 }
+
+void Infiniband::QueuePair::destroy_qp()
+{
+  if (!qp)
+    return;
+
+  ldout(cct, 20) << __func__ << " destroy qp=" << qp << dendl;
+
+  cmgr->qp_destroy();
+
+  qp = nullptr;
+}
+
 
 /**
  * Given a string representation of the `status' field from Verbs

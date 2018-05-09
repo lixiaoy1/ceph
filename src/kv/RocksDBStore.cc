@@ -839,6 +839,7 @@ void RocksDBStore::RocksDBTransactionImpl::set(
   const string &k,
   const bufferlist &to_set_bl)
 {
+  if (prefix == "P") return;
   auto cf = db->get_cf_handle(prefix);
   if (cf) {
     put_bat(bat, cf, k, to_set_bl);
@@ -853,6 +854,7 @@ void RocksDBStore::RocksDBTransactionImpl::set(
   const char *k, size_t keylen,
   const bufferlist &to_set_bl)
 {
+  if (prefix == "P") return;
   auto cf = db->get_cf_handle(prefix);
   if (cf) {
     string key(k, keylen);  // fixme?
@@ -867,6 +869,7 @@ void RocksDBStore::RocksDBTransactionImpl::set(
 void RocksDBStore::RocksDBTransactionImpl::rmkey(const string &prefix,
 					         const string &k)
 {
+  if (prefix == "P") return;
   auto cf = db->get_cf_handle(prefix);
   if (cf) {
     bat.Delete(cf, rocksdb::Slice(k));
@@ -879,6 +882,7 @@ void RocksDBStore::RocksDBTransactionImpl::rmkey(const string &prefix,
 					         const char *k,
 						 size_t keylen)
 {
+  if (prefix == "P") return;
   auto cf = db->get_cf_handle(prefix);
   if (cf) {
     bat.Delete(cf, rocksdb::Slice(k, keylen));
@@ -892,6 +896,7 @@ void RocksDBStore::RocksDBTransactionImpl::rmkey(const string &prefix,
 void RocksDBStore::RocksDBTransactionImpl::rm_single_key(const string &prefix,
 					                 const string &k)
 {
+  if (prefix == "P") return;
   auto cf = db->get_cf_handle(prefix);
   if (cf) {
     bat.SingleDelete(cf, k);
@@ -902,6 +907,7 @@ void RocksDBStore::RocksDBTransactionImpl::rm_single_key(const string &prefix,
 
 void RocksDBStore::RocksDBTransactionImpl::rmkeys_by_prefix(const string &prefix)
 {
+  if (prefix == "P") return;
   auto cf = db->get_cf_handle(prefix);
   if (cf) {
     if (db->enable_rmrange) {
@@ -937,6 +943,7 @@ void RocksDBStore::RocksDBTransactionImpl::rm_range_keys(const string &prefix,
                                                          const string &start,
                                                          const string &end)
 {
+  if (prefix == "P") return;
   auto cf = db->get_cf_handle(prefix);
   if (cf) {
     if (db->enable_rmrange) {
@@ -1018,6 +1025,7 @@ int RocksDBStore::get(
     const std::set<string> &keys,
     std::map<string, bufferlist> *out)
 {
+  if (prefix == "P") return 0;
   utime_t start = ceph_clock_now();
   auto cf = get_cf_handle(prefix);
   if (cf) {
@@ -1059,6 +1067,7 @@ int RocksDBStore::get(
     const string &key,
     bufferlist *out)
 {
+  if (prefix == "P") return 0;
   assert(out && (out->length() == 0));
   utime_t start = ceph_clock_now();
   int r = 0;
@@ -1096,6 +1105,7 @@ int RocksDBStore::get(
   size_t keylen,
   bufferlist *out)
 {
+  if (prefix == "P") return 0;
   assert(out && (out->length() == 0));
   utime_t start = ceph_clock_now();
   int r = 0;

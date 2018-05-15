@@ -349,6 +349,8 @@ public:
       OP_TRY_RENAME = 41,   // oldcid, oldoid, newoid
 
       OP_COLL_SET_BITS = 42, // cid, bits
+      OP_OMAP_SETPGS = 43,
+      OP_OMAP_RMPGS = 44,
     };
 
     // Transaction hint type
@@ -613,6 +615,8 @@ public:
       case OP_OMAP_CLEAR:
       case OP_OMAP_SETKEYS:
       case OP_OMAP_RMKEYS:
+      case OP_OMAP_SETPGS:
+      case OP_OMAP_RMPGS:
       case OP_OMAP_RMKEYRANGE:
       case OP_OMAP_SETHEADER:
       case OP_WRITE:
@@ -1290,6 +1294,35 @@ public:
       data.ops++;
     }
 
+    void omap_setpgs(
+      const coll_t& cid,                           ///< [in] Collection containing oid
+      const ghobject_t &oid,                ///< [in] Object to update
+      const map<string, bufferlist> &attrset ///< [in] Replacement keys and values
+    ) {
+      using ceph::encode;
+      Op* _op = _get_next_op();
+      _op->op = OP_OMAP_SETPGS;
+      _op->cid = _get_coll_id(cid);
+      _op->oid = _get_object_id(oid);
+      encode(attrset, data_bl);
+      data.ops++;
+    }
+
+    /// Set keys on an oid omap (bufferlist variant).
+    void omap_setpgs(
+      const coll_t &cid,                           ///< [in] Collection containing oid
+      const ghobject_t &oid,                ///< [in] Object to update
+      const bufferlist &attrset_bl          ///< [in] Replacement keys and values
+    ) {
+      Op* _op = _get_next_op();
+      _op->op = OP_OMAP_SETPGS;
+      _op->cid = _get_coll_id(cid);
+      _op->oid = _get_object_id(oid);
+      data_bl.append(attrset_bl);
+      data.ops++;
+    }
+
+
     /// Remove keys from oid omap
     void omap_rmkeys(
       const coll_t &cid,             ///< [in] Collection containing oid
@@ -1313,6 +1346,32 @@ public:
       ) {
       Op* _op = _get_next_op();
       _op->op = OP_OMAP_RMKEYS;
+      _op->cid = _get_coll_id(cid);
+      _op->oid = _get_object_id(oid);
+      data_bl.append(keys_bl);
+      data.ops++;
+    }
+
+    void omap_rmpgs(
+      const coll_t &cid,             ///< [in] Collection containing oid
+      const ghobject_t &oid,  ///< [in] Object from which to remove the omap
+      const set<string> &keys ///< [in] Keys to clear
+      ) {
+      using ceph::encode;
+      Op* _op = _get_next_op();
+      _op->op = OP_OMAP_RMPGS;
+      _op->cid = _get_coll_id(cid);
+      _op->oid = _get_object_id(oid);
+      encode(keys, data_bl);
+      data.ops++;
+    }
+    void omap_rmpgs(
+       const coll_t &cid,             ///< [in] Collection containing oid
+       const ghobject_t &oid,  ///< [in] Object from which to remove the omap
+       const bufferlist &keys_bl ///< [in] Keys to clear
+    ) {
+      Op* _op = _get_next_op();
+      _op->op = OP_OMAP_RMPGS;
       _op->cid = _get_coll_id(cid);
       _op->oid = _get_object_id(oid);
       data_bl.append(keys_bl);

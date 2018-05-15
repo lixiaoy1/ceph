@@ -3538,12 +3538,14 @@ int PG::peek_map_epoch(ObjectStore *store,
 
 void PG::write_if_dirty(ObjectStore::Transaction& t)
 {
-  map<string,bufferlist> km;
+  map<string,bufferlist> km, km_pg;
   if (dirty_big_info || dirty_info)
     prepare_write_info(&km);
-  pg_log.write_log_and_missing(t, &km, coll, pgmeta_oid, pool.info.require_rollback());
-  if (!km.empty())
+  pg_log.write_log_and_missing(t, &km, &km_pg, coll, pgmeta_oid, pool.info.require_rollback());
+  if (!km.empty()) 
     t.omap_setkeys(coll, pgmeta_oid, km);
+  if (!km_pg.empty())
+    t.omap_setpgs(coll, pgmeta_oid, km_pg);
 }
 
 void PG::trim_log()

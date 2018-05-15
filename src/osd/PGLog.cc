@@ -569,6 +569,47 @@ void PGLog::check() {
   }
 }
 
+
+// non-static
+void PGLog::write_log_and_missing(
+  ObjectStore::Transaction& t,
+  map<string,bufferlist> *km,
+  map<string,bufferlist> *km_pg,
+  const coll_t& coll,
+  const ghobject_t &log_oid,
+  bool require_rollback)
+{
+  if (is_dirty()) {
+    dout(5) << "write_log_and_missing with: "
+	     << "dirty_to: " << dirty_to
+	     << ", dirty_from: " << dirty_from
+	     << ", writeout_from: " << writeout_from
+	     << ", trimmed: " << trimmed
+	     << ", trimmed_dups: " << trimmed_dups
+	     << ", clear_divergent_priors: " << clear_divergent_priors
+	     << dendl;
+    _write_log_and_missing(
+      t, km, km_pg, log, coll, log_oid,
+      dirty_to,
+      dirty_from,
+      writeout_from,
+      std::move(trimmed),
+      std::move(trimmed_dups),
+      missing,
+      !touched_log,
+      require_rollback,
+      clear_divergent_priors,
+      dirty_to_dups,
+      dirty_from_dups,
+      write_from_dups,
+      &rebuilt_missing_with_deletes,
+      (pg_log_debug ? &log_keys_debug : nullptr));
+    undirty();
+  } else {
+    dout(10) << "log is not dirty" << dendl;
+  }
+}
+
 // non-static
 void PGLog::write_log_and_missing(
   ObjectStore::Transaction& t,
@@ -764,6 +805,159 @@ void PGLog::_write_log_and_missing_wo_missing(
       log.get_rollback_info_trimmed_to(),
       (*km)["rollback_info_trimmed_to"]);
   }
+}
+
+
+// static
+void PGLog::_write_log_and_missing(
+  ObjectStore::Transaction& t,
+  map<string,bufferlist>* km,
+  map<string,bufferlist>* km_pg,
+  pg_log_t &log,
+  const coll_t& coll, const ghobject_t &log_oid,
+  eversion_t dirty_to,
+  eversion_t dirty_from,
+  eversion_t writeout_from,
+  set<eversion_t> &&trimmed,
+  set<string> &&trimmed_dups,
+  const pg_missing_tracker_t &missing,
+  bool touch_log,
+  bool require_rollback,
+  bool clear_divergent_priors,
+  eversion_t dirty_to_dups,
+  eversion_t dirty_from_dups,
+  eversion_t write_from_dups,
+  bool *rebuilt_missing_with_deletes, // in/out param
+  set<string> *log_keys_debug
+  ) {
+  set<string> to_remove, to_remove_pg;
+  to_remove_pg.swap(trimmed_dups);
+  for (auto& t : trimmed) {
+    string key = t.get_key_name();
+    if (log_keys_debug) {
+      auto it = log_keys_debug->find(key);
+      assert(it != log_keys_debug->end());
+      log_keys_debug->erase(it);
+    }
+    to_remove_pg.emplace(std::move(key));
+  }
+  trimmed.clear();
+
+  if (touch_log)
+    t.touch(coll, log_oid);
+  if (dirty_to != eversion_t()) {
+    t.omap_rmkeyrange(
+      coll, log_oid,
+      eversion_t().get_key_name(), dirty_to.get_key_name());
+    clear_up_to(log_keys_debug, dirty_to.get_key_name());
+  }
+  if (dirty_to != eversion_t::max() && dirty_from != eversion_t::max()) {
+    //   dout(10) << "write_log_and_missing, clearing from " << dirty_from << dendl;
+    t.omap_rmkeyrange(
+      coll, log_oid,
+      dirty_from.get_key_name(), eversion_t::max().get_key_name());
+    clear_after(log_keys_debug, dirty_from.get_key_name());
+  }
+
+  for (list<pg_log_entry_t>::iterator p = log.log.begin();
+       p != log.log.end() && p->version <= dirty_to;
+       ++p) {
+    bufferlist bl(sizeof(*p) * 2);
+    p->encode_with_checksum(bl);
+    (*km_pg)[p->get_key_name()].claim(bl);
+  }
+
+  for (list<pg_log_entry_t>::reverse_iterator p = log.log.rbegin();
+       p != log.log.rend() &&
+	 (p->version >= dirty_from || p->version >= writeout_from) &&
+	 p->version >= dirty_to;
+       ++p) {
+    bufferlist bl(sizeof(*p) * 2);
+    p->encode_with_checksum(bl);
+    (*km_pg)[p->get_key_name()].claim(bl);
+  }
+
+  if (log_keys_debug) {
+    for (map<string, bufferlist>::iterator i = (*km_pg).begin();
+	 i != (*km_pg).end();
+	 ++i) {
+      if (i->first[0] == '_')
+	continue;
+      assert(!log_keys_debug->count(i->first));
+      log_keys_debug->insert(i->first);
+    }
+  }
+
+  // process dups after log_keys_debug is filled, so dups do not
+  // end up in that set
+  if (dirty_to_dups != eversion_t()) {
+    pg_log_dup_t min, dirty_to_dup;
+    dirty_to_dup.version = dirty_to_dups;
+    t.omap_rmkeyrange(
+      coll, log_oid,
+      min.get_key_name(), dirty_to_dup.get_key_name());
+  }
+  if (dirty_to_dups != eversion_t::max() && dirty_from_dups != eversion_t::max()) {
+    pg_log_dup_t max, dirty_from_dup;
+    max.version = eversion_t::max();
+    dirty_from_dup.version = dirty_from_dups;
+    t.omap_rmkeyrange(
+      coll, log_oid,
+      dirty_from_dup.get_key_name(), max.get_key_name());
+  }
+
+  for (const auto& entry : log.dups) {
+    if (entry.version > dirty_to_dups)
+      break;
+    bufferlist bl;
+    encode(entry, bl);
+    (*km_pg)[entry.get_key_name()].claim(bl);
+  }
+
+  for (list<pg_log_dup_t>::reverse_iterator p = log.dups.rbegin();
+       p != log.dups.rend() &&
+	 (p->version >= dirty_from_dups || p->version >= write_from_dups) &&
+	 p->version >= dirty_to_dups;
+       ++p) {
+    bufferlist bl;
+    encode(*p, bl);
+    (*km_pg)[p->get_key_name()].claim(bl);
+  }
+
+  if (clear_divergent_priors) {
+    //dout(10) << "write_log_and_missing: writing divergent_priors" << dendl;
+    to_remove.insert("divergent_priors");
+  }
+  // since we encode individual missing items instead of a whole
+  // missing set, we need another key to store this bit of state
+  if (*rebuilt_missing_with_deletes) {
+    (*km)["may_include_deletes_in_missing"] = bufferlist();
+    *rebuilt_missing_with_deletes = false;
+  }
+  missing.get_changed(
+    [&](const hobject_t &obj) {
+      string key = string("missing/") + obj.to_str();
+      pg_missing_item item;
+      if (!missing.is_missing(obj, &item)) {
+	to_remove.insert(key);
+      } else {
+	uint64_t features = missing.may_include_deletes ? CEPH_FEATURE_OSD_RECOVERY_DELETES : 0;
+	encode(make_pair(obj, item), (*km)[key], features);
+      }
+    });
+  if (require_rollback) {
+    encode(
+      log.get_can_rollback_to(),
+      (*km)["can_rollback_to"]);
+    encode(
+      log.get_rollback_info_trimmed_to(),
+      (*km)["rollback_info_trimmed_to"]);
+  }
+
+  if (!to_remove.empty())
+    t.omap_rmkeys(coll, log_oid, to_remove);
+  if (!to_remove_pg.empty())
+    t.omap_rmpgs(coll, log_oid, to_remove_pg);
 }
 
 // static

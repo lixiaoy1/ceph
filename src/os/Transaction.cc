@@ -315,9 +315,27 @@ void ObjectStore::Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
+        map<string, bufferlist> aset;
+        i.decode_attrset(aset);
+        f->dump_string("op_name", "omap_setkeys");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("oid") << oid;
+        f->open_object_section("attr_lens");
+        for (map<string, bufferlist>::iterator p = aset.begin();
+		            p != aset.end(); ++p) {
+	          f->dump_unsigned(p->first.c_str(), p->second.length());
+	          }
+        f->close_section();
+      }
+      break;
+
+    case Transaction::OP_OMAP_SETPGS:
+      {
+        coll_t cid = i.get_cid(op->cid);
+        ghobject_t oid = i.get_oid(op->oid);
 	map<string, bufferlist> aset;
 	i.decode_attrset(aset);
-	f->dump_string("op_name", "omap_setkeys");
+	f->dump_string("op_name", "omap_setpgs");
 	f->dump_stream("collection") << cid;
 	f->dump_stream("oid") << oid;
 	f->open_object_section("attr_lens");
@@ -333,9 +351,26 @@ void ObjectStore::Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
+        set<string> keys;
+        i.decode_keyset(keys);
+        f->dump_string("op_name", "omap_rmkeys");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("oid") << oid;
+        f->open_array_section("attrs");
+        for (auto& k : keys) {
+	          f->dump_string("", k.c_str());
+	          }
+        f->close_section();
+      }
+      break;
+
+    case Transaction::OP_OMAP_RMPGS:
+      {
+        coll_t cid = i.get_cid(op->cid);
+        ghobject_t oid = i.get_oid(op->oid);
 	set<string> keys;
 	i.decode_keyset(keys);
-	f->dump_string("op_name", "omap_rmkeys");
+	f->dump_string("op_name", "omap_rmpgs");
 	f->dump_stream("collection") << cid;
 	f->dump_stream("oid") << oid;
 	f->open_array_section("attrs");

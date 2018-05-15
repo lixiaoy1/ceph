@@ -9842,7 +9842,22 @@ void BlueStore::_txc_add_transaction(TransContext *txc, Transaction *t)
 			    op->alloc_hint_flags);
       }
       break;
-
+    case Transaction::OP_OMAP_SETPGS:
+      {
+        dout(1) << __func__ << " skip op_setpgs " << dendl;
+        bufferlist aset_bl;
+        i.decode_attrset_bl(&aset_bl);
+        r = _omap_setkeys(txc, c, o, aset_bl);	  
+      }
+      break;
+    case Transaction::OP_OMAP_RMPGS:
+      {
+        dout(1) << __func__ << " skip op_rmpgs " << dendl;
+	bufferlist keys_bl;
+        i.decode_keyset_bl(&keys_bl);
+        r = _omap_rmkeys(txc, c, o, keys_bl);
+      }
+      break;
     default:
       derr << __func__ << " bad op " << op->op << dendl;
       ceph_abort();
@@ -9861,6 +9876,8 @@ void BlueStore::_txc_add_transaction(TransContext *txc, Transaction *t)
 			    op->op == Transaction::OP_RMATTR ||
 			    op->op == Transaction::OP_OMAP_SETKEYS ||
 			    op->op == Transaction::OP_OMAP_RMKEYS ||
+			    op->op == Transaction::OP_OMAP_SETPGS ||
+			    op->op == Transaction::OP_OMAP_RMPGS ||
 			    op->op == Transaction::OP_OMAP_RMKEYRANGE ||
 			    op->op == Transaction::OP_OMAP_SETHEADER))
 	// -ENOENT is usually okay
@@ -9973,7 +9990,7 @@ void BlueStore::_dump_extent_map(ExtentMap &em)
 template <int LogLevelV>
 void BlueStore::_dump_transaction(Transaction *t)
 {
-  dout(LogLevelV) << __func__ << " transaction dump:\n";
+  dout(3) << __func__ << " transaction dump:\n";
   JSONFormatter f(true);
   f.open_object_section("transaction");
   t->dump(&f);
@@ -11448,7 +11465,7 @@ int BlueStore::_omap_setkeys(TransContext *txc,
     decode(value, p);
     final_key.resize(9); // keep prefix
     final_key += key;
-    dout(20) << __func__ << "  " << pretty_binary_string(final_key)
+    dout(3) << __func__ << " LISA " << prefix << " " << pretty_binary_string(final_key)
 	     << " <- " << key << dendl;
     txc->t->set(prefix, final_key, value);
   }
@@ -11479,6 +11496,7 @@ int BlueStore::_omap_setheader(TransContext *txc,
   get_omap_header(o->onode.nid, &key);
   txc->t->set(prefix, key, bl);
   r = 0;
+  dout(3) << __func__ << " LISA " << prefix << " " << pretty_binary_string(key) << dendl;
   dout(10) << __func__ << " " << c->cid << " " << o->oid << " = " << r << dendl;
   return r;
 }

@@ -1193,6 +1193,14 @@ public:
     const ghobject_t &log_oid,
     bool require_rollback);
 
+  void write_log_and_missing(
+    ObjectStore::Transaction& t,
+    map<string,bufferlist> *km,
+    map<string,bufferlist> *km_pg,
+    const coll_t& coll,
+    const ghobject_t &log_oid,
+    bool require_rollback);
+
   static void write_log_and_missing_wo_missing(
     ObjectStore::Transaction& t,
     map<string,bufferlist>* km,
@@ -1232,6 +1240,28 @@ public:
   static void _write_log_and_missing(
     ObjectStore::Transaction& t,
     map<string,bufferlist>* km,
+    pg_log_t &log,
+    const coll_t& coll, const ghobject_t &log_oid,
+    eversion_t dirty_to,
+    eversion_t dirty_from,
+    eversion_t writeout_from,
+    set<eversion_t> &&trimmed,
+    set<string> &&trimmed_dups,
+    const pg_missing_tracker_t &missing,
+    bool touch_log,
+    bool require_rollback,
+    bool clear_divergent_priors,
+    eversion_t dirty_to_dups,
+    eversion_t dirty_from_dups,
+    eversion_t write_from_dups,
+    bool *rebuilt_missing_with_deletes,
+    set<string> *log_keys_debug
+    );
+
+  static void _write_log_and_missing(
+    ObjectStore::Transaction& t,
+    map<string,bufferlist>* km,
+    map<string,bufferlist>* km_pg,
     pg_log_t &log,
     const coll_t& coll, const ghobject_t &log_oid,
     eversion_t dirty_to,

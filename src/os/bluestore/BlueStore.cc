@@ -9847,7 +9847,7 @@ void BlueStore::_txc_add_transaction(TransContext *txc, Transaction *t)
         dout(1) << __func__ << " skip op_setpgs " << dendl;
         bufferlist aset_bl;
         i.decode_attrset_bl(&aset_bl);
-        r = _omap_setkeys(txc, c, o, aset_bl);	  
+//        r = _omap_setkeys(txc, c, o, aset_bl);	  
       }
       break;
     case Transaction::OP_OMAP_RMPGS:
@@ -9855,7 +9855,7 @@ void BlueStore::_txc_add_transaction(TransContext *txc, Transaction *t)
         dout(1) << __func__ << " skip op_rmpgs " << dendl;
 	bufferlist keys_bl;
         i.decode_keyset_bl(&keys_bl);
-        r = _omap_rmkeys(txc, c, o, keys_bl);
+//        r = _omap_rmkeys(txc, c, o, keys_bl);
       }
       break;
     default:

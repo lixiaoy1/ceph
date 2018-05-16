@@ -3228,6 +3228,8 @@ BlueStore::Collection::Collection(BlueStore *ns, Cache *c, coll_t cid)
     cache(c),
     lock("BlueStore::Collection::lock", true, false),
     exists(true),
+    head(0),
+    tail(0),
     onode_map(c)
 {
   osr->shard = cid.hash_to_shard(ns->m_finisher_num);
@@ -9654,7 +9656,8 @@ void BlueStore::_txc_add_transaction(TransContext *txc, Transaction *t)
     bool create = false;
     if (op->op == Transaction::OP_TOUCH ||
 	op->op == Transaction::OP_WRITE ||
-	op->op == Transaction::OP_ZERO) {
+	op->op == Transaction::OP_ZERO  ||
+	op->op == Transaction::OP_OMAP_SETPGS) {
       create = true;
     }
 
@@ -9681,7 +9684,7 @@ void BlueStore::_txc_add_transaction(TransContext *txc, Transaction *t)
       {
         uint64_t off = op->off;
         uint64_t len = op->len;
-	uint32_t fadvise_flags = i.get_fadvise_flags();
+	    uint32_t fadvise_flags = i.get_fadvise_flags();
         bufferlist bl;
         i.decode_bl(bl);
 	r = _write(txc, c, o, off, len, bl, fadvise_flags);
@@ -9844,18 +9847,19 @@ void BlueStore::_txc_add_transaction(TransContext *txc, Transaction *t)
       break;
     case Transaction::OP_OMAP_SETPGS:
       {
-        dout(1) << __func__ << " skip op_setpgs " << dendl;
-        bufferlist aset_bl;
+        dout(1) << __func__ << " op_setpgs " << dendl;
+	    bufferlist aset_bl;
         i.decode_attrset_bl(&aset_bl);
-//        r = _omap_setkeys(txc, c, o, aset_bl);	  
+        uint32_t fadvise_flags = i.get_fadvise_flags();
+        _add_pg_log_entries(txc, c, o, aset_bl, fadvise_flags);
       }
       break;
     case Transaction::OP_OMAP_RMPGS:
       {
         dout(1) << __func__ << " skip op_rmpgs " << dendl;
-	bufferlist keys_bl;
+	    bufferlist keys_bl;
         i.decode_keyset_bl(&keys_bl);
-//        r = _omap_rmkeys(txc, c, o, keys_bl);
+		// TODO: delete pglog entries, update head.
       }
       break;
     default:
@@ -11066,6 +11070,51 @@ int BlueStore::_do_write(
   return r;
 }
 
+int BlueStore::_add_pg_log_entries(TransContext *txc,
+		      CollectionRef& c,
+		      OnodeRef& o,
+		      bufferlist& bl,
+		      uint32_t fadvise_flags)
+{
+    dout(1) << __func__ << " " << c->cid << " " << o->oid << dendl;
+    int r;
+    bufferlist::iterator p = bl.begin();
+    __u32 num;
+    decode(num, p);
+    while (num--) {
+      string key;
+      bufferlist value;
+      decode(key, p);
+      decode(value, p);
+      // 
+      bufferlist log_entry;
+      log_entry.reserve(PGLOG_ENTRY_SIZE);
+      encode(key, log_entry);
+      encode(value, log_entry);      
+      uint32_t off = c->tail *PGLOG_ENTRY_SIZE;
+      uint32_t len = log_entry.length();
+      assert(len <= PGLOG_ENTRY_SIZE);
+      _apply_padding(0, PGLOG_ENTRY_SIZE-len, log_entry);
+      uint32_t len2 = log_entry.length();
+      assert(len2 == PGLOG_ENTRY_SIZE);
+      _write(txc, c, o, off, len, log_entry, fadvise_flags);
+      dout(1) << __func__ << " cid: " << c->cid << " oid: " << o->oid
+	<< " write key: " << pretty_binary_string(key)
+        << " value: " << value
+        << " off " << off << " len " << len << dendl;      
+
+      // Update tail
+      c->tail++;
+      assert(c->tail <= MAX_PG_LOGS);
+      if (c->tail == MAX_PG_LOGS) {
+          c->tail = 0;
+      }
+      assert(c->tail != c->head);     
+    }
+    r = 0;
+    return r;
+}
+              
 int BlueStore::_write(TransContext *txc,
 		      CollectionRef& c,
 		      OnodeRef& o,

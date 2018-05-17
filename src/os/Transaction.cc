@@ -333,15 +333,15 @@ void ObjectStore::Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
-	map<string, bufferlist> aset;
+	map<eversion_t, bufferlist> aset;
 	i.decode_attrset(aset);
 	f->dump_string("op_name", "omap_setpgs");
 	f->dump_stream("collection") << cid;
 	f->dump_stream("oid") << oid;
 	f->open_object_section("attr_lens");
-	for (map<string, bufferlist>::iterator p = aset.begin();
+	for (map<eversion_t, bufferlist>::iterator p = aset.begin();
 	    p != aset.end(); ++p) {
-	  f->dump_unsigned(p->first.c_str(), p->second.length());
+	  f->dump_unsigned(p->first.get_key_name().c_str(), p->second.length());
 	}
 	f->close_section();
       }
@@ -368,15 +368,12 @@ void ObjectStore::Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
-	set<string> keys;
-	i.decode_keyset(keys);
+	eversion_t version;
+	version = i.decode_eversion_t();
 	f->dump_string("op_name", "omap_rmpgs");
 	f->dump_stream("collection") << cid;
 	f->dump_stream("oid") << oid;
-	f->open_array_section("attrs");
-	for (auto& k : keys) {
-	  f->dump_string("", k.c_str());
-	}
+	f->dump_string("trimmed to: ", version.get_key_name());
 	f->close_section();
       }
       break;

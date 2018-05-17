@@ -60,6 +60,8 @@ static inline void encode(const map<string,bufferptr> *attrset, bufferlist &bl) 
 // this isn't the best place for these, but...
 void decode_str_str_map_to_bl(bufferlist::iterator& p, bufferlist *out);
 void decode_str_set_to_bl(bufferlist::iterator& p, bufferlist *out);
+void decode_version_str_map_to_bl(bufferlist::iterator& p,
+                              bufferlist *out);
 
 // Flag bits
 typedef uint32_t osflagbits_t;
@@ -902,6 +904,12 @@ public:
         decode(s, data_bl_p);
         return s;
       }
+      eversion_t decode_eversion_t() {
+        using ceph::decode;
+	eversion_t version;
+        decode(version, data_bl_p);
+	return version;
+      }
       void decode_bp(bufferptr& bp) {
 	using ceph::decode;
         decode(bp, data_bl_p);
@@ -914,12 +922,19 @@ public:
 	using ceph::decode;
         decode(aset, data_bl_p);
       }
+      void decode_attrset(map<eversion_t, bufferlist>& aset) {
+	using ceph::decode;
+        decode(aset, data_bl_p);
+      }
       void decode_attrset(map<string,bufferlist>& aset) {
 	using ceph::decode;
         decode(aset, data_bl_p);
       }
       void decode_attrset_bl(bufferlist *pbl) {
 	decode_str_str_map_to_bl(data_bl_p, pbl);
+      }
+      void decode_version_attrset_bl(bufferlist *pbl) {
+	decode_version_str_map_to_bl(data_bl_p, pbl);
       }
       void decode_keyset(set<string> &keys){
 	using ceph::decode;
@@ -1297,7 +1312,7 @@ public:
     void omap_setpgs(
       const coll_t& cid,                           ///< [in] Collection containing oid
       const ghobject_t &oid,                ///< [in] Object to update
-      const map<string, bufferlist> &attrset ///< [in] Replacement keys and values
+      const map<eversion_t, bufferlist> &attrset ///< [in] Replacement keys and values
     ) {
       using ceph::encode;
       Op* _op = _get_next_op();
@@ -1352,20 +1367,7 @@ public:
       data.ops++;
     }
 
-    void omap_rmpgs(
-      const coll_t &cid,             ///< [in] Collection containing oid
-      const ghobject_t &oid,  ///< [in] Object from which to remove the omap
-      const set<string> &keys ///< [in] Keys to clear
-      ) {
-      using ceph::encode;
-      Op* _op = _get_next_op();
-      _op->op = OP_OMAP_RMPGS;
-      _op->cid = _get_coll_id(cid);
-      _op->oid = _get_object_id(oid);
-      encode(keys, data_bl);
-      data.ops++;
-    }
-    void omap_rmpgs(
+   void omap_rmpgs(
        const coll_t &cid,             ///< [in] Collection containing oid
        const ghobject_t &oid,  ///< [in] Object from which to remove the omap
        const bufferlist &keys_bl ///< [in] Keys to clear

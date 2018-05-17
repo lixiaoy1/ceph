@@ -574,7 +574,7 @@ void PGLog::check() {
 void PGLog::write_log_and_missing(
   ObjectStore::Transaction& t,
   map<string,bufferlist> *km,
-  map<string,bufferlist> *km_pg,
+  map<eversion_t,bufferlist> *km_pg,
   const coll_t& coll,
   const ghobject_t &log_oid,
   bool require_rollback)
@@ -812,7 +812,7 @@ void PGLog::_write_log_and_missing_wo_missing(
 void PGLog::_write_log_and_missing(
   ObjectStore::Transaction& t,
   map<string,bufferlist>* km,
-  map<string,bufferlist>* km_pg,
+  map<eversion_t,bufferlist>* km_pg,
   pg_log_t &log,
   const coll_t& coll, const ghobject_t &log_oid,
   eversion_t dirty_to,
@@ -830,7 +830,9 @@ void PGLog::_write_log_and_missing(
   bool *rebuilt_missing_with_deletes, // in/out param
   set<string> *log_keys_debug
   ) {
-  set<string> to_remove, to_remove_pg;
+  set<string> to_remove;
+  bufferlist to_remove_pg;
+  /*
   to_remove_pg.swap(trimmed_dups);
   for (auto& t : trimmed) {
     string key = t.get_key_name();
@@ -840,6 +842,16 @@ void PGLog::_write_log_and_missing(
       log_keys_debug->erase(it);
     }
     to_remove_pg.emplace(std::move(key));
+  }*/
+  eversion_t latest_version = eversion_t::max(); 
+  for (auto& t : trimmed) {
+    if ( latest_version < t ) {
+        latest_version = t;
+    }
+  }
+  if (latest_version != eversion_t::max())
+  {
+    latest_version.encode(to_remove_pg);
   }
   trimmed.clear();
 
@@ -864,7 +876,7 @@ void PGLog::_write_log_and_missing(
        ++p) {
     bufferlist bl(sizeof(*p) * 2);
     p->encode_with_checksum(bl);
-    (*km_pg)[p->get_key_name()].claim(bl);
+    (*km_pg)[p->version].claim(bl);
   }
 
   for (list<pg_log_entry_t>::reverse_iterator p = log.log.rbegin();
@@ -874,17 +886,16 @@ void PGLog::_write_log_and_missing(
        ++p) {
     bufferlist bl(sizeof(*p) * 2);
     p->encode_with_checksum(bl);
-    (*km_pg)[p->get_key_name()].claim(bl);
+    (*km_pg)[p->version].claim(bl);
   }
 
   if (log_keys_debug) {
-    for (map<string, bufferlist>::iterator i = (*km_pg).begin();
+    for (map<eversion_t, bufferlist>::iterator i = (*km_pg).begin();
 	 i != (*km_pg).end();
 	 ++i) {
-      if (i->first[0] == '_')
-	continue;
-      assert(!log_keys_debug->count(i->first));
-      log_keys_debug->insert(i->first);
+      string key = i->first.get_key_name();
+      assert(!log_keys_debug->count(key));
+      log_keys_debug->insert(key);
     }
   }
 
@@ -911,7 +922,7 @@ void PGLog::_write_log_and_missing(
       break;
     bufferlist bl;
     encode(entry, bl);
-    (*km_pg)[entry.get_key_name()].claim(bl);
+    (*km_pg)[entry.version].claim(bl);
   }
 
   for (list<pg_log_dup_t>::reverse_iterator p = log.dups.rbegin();
@@ -921,7 +932,7 @@ void PGLog::_write_log_and_missing(
        ++p) {
     bufferlist bl;
     encode(*p, bl);
-    (*km_pg)[p->get_key_name()].claim(bl);
+    (*km_pg)[p->version].claim(bl);
   }
 
   if (clear_divergent_priors) {
@@ -956,7 +967,7 @@ void PGLog::_write_log_and_missing(
 
   if (!to_remove.empty())
     t.omap_rmkeys(coll, log_oid, to_remove);
-  if (!to_remove_pg.empty())
+  if (to_remove_pg.length())
     t.omap_rmpgs(coll, log_oid, to_remove_pg);
 }
 

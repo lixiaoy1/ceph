@@ -3233,6 +3233,7 @@ BlueStore::Collection::Collection(BlueStore *ns, Cache *c, coll_t cid)
     onode_map(c)
 {
   osr->shard = cid.hash_to_shard(ns->m_finisher_num);
+  logs.resize(MAX_PG_LOGS);
 }
 
 bool BlueStore::Collection::flush_commit(Context *c)
@@ -9849,17 +9850,17 @@ void BlueStore::_txc_add_transaction(TransContext *txc, Transaction *t)
       {
         dout(1) << __func__ << " op_setpgs " << dendl;
 	    bufferlist aset_bl;
-        i.decode_attrset_bl(&aset_bl);
+	i.decode_version_attrset_bl(&aset_bl);
         uint32_t fadvise_flags = i.get_fadvise_flags();
-        _add_pg_log_entries(txc, c, o, aset_bl, fadvise_flags);
+        r= _add_pg_log_entries(txc, c, o, aset_bl, fadvise_flags);
       }
       break;
     case Transaction::OP_OMAP_RMPGS:
       {
         dout(1) << __func__ << " skip op_rmpgs " << dendl;
-	    bufferlist keys_bl;
-        i.decode_keyset_bl(&keys_bl);
-		// TODO: delete pglog entries, update head.
+	eversion_t version = i.decode_eversion_t();
+	// TODO: delete pglog entries, update head.
+	r = _rm_pg_log_entries(txc, c, o, version);
       }
       break;
     default:
@@ -11082,27 +11083,26 @@ int BlueStore::_add_pg_log_entries(TransContext *txc,
     __u32 num;
     decode(num, p);
     while (num--) {
-      string key;
+      eversion_t version;
       bufferlist value;
-      decode(key, p);
+      decode(version, p);
       decode(value, p);
       // 
       bufferlist log_entry;
       log_entry.reserve(PGLOG_ENTRY_SIZE);
-      encode(key, log_entry);
-      encode(value, log_entry);      
+      encode(value, log_entry);
       uint32_t off = c->tail *PGLOG_ENTRY_SIZE;
       uint32_t len = log_entry.length();
       assert(len <= PGLOG_ENTRY_SIZE);
       _apply_padding(0, PGLOG_ENTRY_SIZE-len, log_entry);
       uint32_t len2 = log_entry.length();
       assert(len2 == PGLOG_ENTRY_SIZE);
-      _write(txc, c, o, off, len, log_entry, fadvise_flags);
+      _write(txc, c, o, off, len2, log_entry, fadvise_flags);
       dout(1) << __func__ << " cid: " << c->cid << " oid: " << o->oid
-	<< " write key: " << pretty_binary_string(key)
-        << " value: " << value
-        << " off " << off << " len " << len << dendl;      
+	<< " write key: " << pretty_binary_string(version.get_key_name())
+	<< " head: " << c->head << " tail: " << c->tail << dendl;
 
+      c->logs[c->tail] = version;
       // Update tail
       c->tail++;
       assert(c->tail <= MAX_PG_LOGS);
@@ -11112,8 +11112,43 @@ int BlueStore::_add_pg_log_entries(TransContext *txc,
       assert(c->tail != c->head);     
     }
     r = 0;
+    dout(1) << __func__ << "end " << dendl;
     return r;
 }
+
+int BlueStore::_rm_pg_log_entries(TransContext *txc,
+			    CollectionRef& c,
+			    OnodeRef& o,
+			    eversion_t version)
+{
+  dout(1) << __func__ << " " << c->cid << " " << o->oid << dendl;
+
+  {
+    dout(1) << __func__ << " cid: " << c->cid << " oid: " << o->oid
+	    << " version " << version.get_key_name() << dendl;
+    
+    // delete key from logs_set.
+    uint32_t index = c->head;
+    while (index != c->tail) {
+        if (c->logs[index] == version)
+	    break;
+	index++;
+	if (index == MAX_PG_LOGS)
+	   index = 0;	
+    }
+    assert(index != c->tail);
+
+    c->head = (index + 1)%MAX_PG_LOGS;
+    dout(1) << __func__ << " cid: " << c->cid
+	    << " head: " << c->head << " tail: " << c->tail << dendl;
+    
+    txc->note_modified_object(o);
+    return 0;
+  }
+
+  dout(1) << __func__ << " " << c->cid << " " << o->oid << " = " << dendl;
+  return 0;
+}              
               
 int BlueStore::_write(TransContext *txc,
 		      CollectionRef& c,

@@ -55,7 +55,7 @@ class BlueStoreRepairer;
 
 // constants for Buffer::optimize()
 #define MAX_BUFFER_SLOP_RATIO_DEN  8  // so actually 1/N
-const static uint32_t PGLOG_ENTRY_SIZE = 4096;
+const static uint32_t PGLOG_ENTRY_SIZE = 512;
 const static uint32_t MAX_PG_LOGS = 5000;
 
 enum {
@@ -1360,8 +1360,8 @@ public:
 
     //pg log entries
     uint32_t head;    // first pg log entry
-	uint32_t tail;   // next new pg log entry
-	uint32_t entry_size = 512;
+    uint32_t tail;   // next new pg log entry
+    vector<eversion_t> logs; 
 
     SharedBlobSet shared_blob_set;      ///< open SharedBlobs
 
@@ -2529,6 +2529,10 @@ private:
                 OnodeRef& o,
                 bufferlist& bl,
                 uint32_t fadvise_flags);
+  int _rm_pg_log_entries(TransContext *txc,
+			    CollectionRef& c,
+			    OnodeRef& o,
+			    eversion_t version);
   int _write(TransContext *txc,
 	     CollectionRef& c,
 	     OnodeRef& o,

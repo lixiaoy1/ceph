@@ -1196,7 +1196,7 @@ public:
   void write_log_and_missing(
     ObjectStore::Transaction& t,
     map<string,bufferlist> *km,
-    map<string,bufferlist> *km_pg,
+    map<eversion_t,bufferlist> *km_pg,
     const coll_t& coll,
     const ghobject_t &log_oid,
     bool require_rollback);
@@ -1261,7 +1261,7 @@ public:
   static void _write_log_and_missing(
     ObjectStore::Transaction& t,
     map<string,bufferlist>* km,
-    map<string,bufferlist>* km_pg,
+    map<eversion_t,bufferlist>* km_pg,
     pg_log_t &log,
     const coll_t& coll, const ghobject_t &log_oid,
     eversion_t dirty_to,

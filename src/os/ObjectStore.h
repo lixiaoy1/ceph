@@ -905,9 +905,8 @@ public:
         return s;
       }
       eversion_t decode_eversion_t() {
-        using ceph::decode;
 	eversion_t version;
-        decode(version, data_bl_p);
+        version.decode(data_bl_p);
 	return version;
       }
       void decode_bp(bufferptr& bp) {
@@ -1370,13 +1369,13 @@ public:
    void omap_rmpgs(
        const coll_t &cid,             ///< [in] Collection containing oid
        const ghobject_t &oid,  ///< [in] Object from which to remove the omap
-       const bufferlist &keys_bl ///< [in] Keys to clear
+       const eversion_t version ///< [in] Keys to clear
     ) {
       Op* _op = _get_next_op();
       _op->op = OP_OMAP_RMPGS;
       _op->cid = _get_coll_id(cid);
       _op->oid = _get_object_id(oid);
-      data_bl.append(keys_bl);
+      version.encode(data_bl);
       data.ops++;
     }
 

@@ -579,7 +579,7 @@ void PGLog::write_log_and_missing(
   const ghobject_t &log_oid,
   bool require_rollback)
 {
-  if (is_dirty()) {
+  if (is_dirty() && !trimmed.empty()) {
     dout(5) << "write_log_and_missing with: "
 	     << "dirty_to: " << dirty_to
 	     << ", dirty_from: " << dirty_from
@@ -831,7 +831,6 @@ void PGLog::_write_log_and_missing(
   set<string> *log_keys_debug
   ) {
   set<string> to_remove;
-  bufferlist to_remove_pg;
   /*
   to_remove_pg.swap(trimmed_dups);
   for (auto& t : trimmed) {
@@ -843,15 +842,13 @@ void PGLog::_write_log_and_missing(
     }
     to_remove_pg.emplace(std::move(key));
   }*/
-  eversion_t latest_version = eversion_t::max(); 
-  for (auto& t : trimmed) {
-    if ( latest_version < t ) {
+  eversion_t latest_version;
+  if (!trimmed.empty()) {
+    for (auto& t : trimmed) {
+      if ( latest_version < t ) {
         latest_version = t;
+      }
     }
-  }
-  if (latest_version != eversion_t::max())
-  {
-    latest_version.encode(to_remove_pg);
   }
   trimmed.clear();
 
@@ -967,8 +964,8 @@ void PGLog::_write_log_and_missing(
 
   if (!to_remove.empty())
     t.omap_rmkeys(coll, log_oid, to_remove);
-  if (to_remove_pg.length())
-    t.omap_rmpgs(coll, log_oid, to_remove_pg);
+  if (latest_version != eversion_t())
+    t.omap_rmpgs(coll, log_oid, latest_version);
 }
 
 // static

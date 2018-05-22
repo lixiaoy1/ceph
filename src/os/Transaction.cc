@@ -373,8 +373,7 @@ void ObjectStore::Transaction::dump(ceph::Formatter *f)
 	f->dump_string("op_name", "omap_rmpgs");
 	f->dump_stream("collection") << cid;
 	f->dump_stream("oid") << oid;
-	f->dump_string("trimmed to: ", version.get_key_name());
-	f->close_section();
+	f->dump_string("", version.get_key_name().c_str());
       }
       break;
 

@@ -11107,6 +11107,7 @@ int BlueStore::_add_pg_log_entries(TransContext *txc,
       c->tail++;
       assert(c->tail <= MAX_PG_LOGS);
       if (c->tail == MAX_PG_LOGS) {
+	  dout(1) << __func__ << c->cid << " tail reset to 0" << dendl;
           c->tail = 0;
       }
       assert(c->tail != c->head);     

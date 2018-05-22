@@ -1413,6 +1413,9 @@ public:
     void flush() override;
 
     Collection(BlueStore *ns, Cache *ca, coll_t c);
+    ~Collection() {
+        logs.clear();
+    }	
   };
 
   class OmapIteratorImpl : public ObjectMap::ObjectMapIteratorImpl {

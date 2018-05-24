@@ -11112,6 +11112,14 @@ int BlueStore::_add_pg_log_entries(TransContext *txc,
       }
       assert(c->tail != c->head);     
     }
+    string final_key;
+    _key_encode_u64(o->onode.nid, &final_key);
+    final_key += ".tail";
+    bufferlist value;
+    encode(c->tail, value);
+    txc->t->set(PREFIX_OMAP, final_key, value);
+
+    txc->note_modified_object(o);
     r = 0;
     dout(1) << __func__ << "end " << dendl;
     return r;
@@ -11142,6 +11150,13 @@ int BlueStore::_rm_pg_log_entries(TransContext *txc,
     c->head = (index + 1)%MAX_PG_LOGS;
     dout(1) << __func__ << " cid: " << c->cid
 	    << " head: " << c->head << " tail: " << c->tail << dendl;
+
+    string final_key;
+    _key_encode_u64(o->onode.nid, &final_key);
+    final_key += ".head";
+    bufferlist value;
+    encode(c->head, value);
+    txc->t->set(PREFIX_OMAP, final_key, value);
     
     txc->note_modified_object(o);
     return 0;

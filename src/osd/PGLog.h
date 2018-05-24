@@ -536,7 +536,7 @@ public:
       CephContext* cct,
       eversion_t s,
       set<eversion_t> *trimmed,
-      set<string>* trimmed_dups,
+      set<eversion_t>* trimmed_dups,
       eversion_t *write_from_dups);
 
     ostream& print(ostream& out) const;
@@ -556,7 +556,7 @@ protected:
   eversion_t dirty_to_dups;    ///< must clear/writeout all dups <= dirty_to_dups
   eversion_t dirty_from_dups;  ///< must clear/writeout all dups >= dirty_from_dups
   eversion_t write_from_dups;  ///< must write keys >= write_from_dups
-  set<string> trimmed_dups;    ///< must clear keys in trimmed_dups
+  set<eversion_t> trimmed_dups;    ///< must clear keys in trimmed_dups
   CephContext *cct;
   bool pg_log_debug;
   /// Log is clean on [dirty_to, dirty_from)
@@ -1246,7 +1246,7 @@ public:
     eversion_t dirty_from,
     eversion_t writeout_from,
     set<eversion_t> &&trimmed,
-    set<string> &&trimmed_dups,
+    set<eversion_t> &&trimmed_dups,
     const pg_missing_tracker_t &missing,
     bool touch_log,
     bool require_rollback,
@@ -1268,7 +1268,7 @@ public:
     eversion_t dirty_from,
     eversion_t writeout_from,
     set<eversion_t> &&trimmed,
-    set<string> &&trimmed_dups,
+    set<eversion_t> &&trimmed_dups,
     const pg_missing_tracker_t &missing,
     bool touch_log,
     bool require_rollback,

@@ -47,7 +47,7 @@ void PGLog::IndexedLog::trim(
   CephContext* cct,
   eversion_t s,
   set<eversion_t> *trimmed,
-  set<string>* trimmed_dups,
+  set<eversion_t>* trimmed_dups,
   eversion_t *write_from_dups)
 {
   if (complete_to != log.end() &&
@@ -107,7 +107,7 @@ void PGLog::IndexedLog::trim(
       break;
     generic_dout(20) << "trim dup " << e << dendl;
     if (trimmed_dups)
-      trimmed_dups->insert(e.get_key_name());
+      trimmed_dups->insert(e.version);
     unindex(e);
     dups.pop_front();
   }
@@ -579,7 +579,8 @@ void PGLog::write_log_and_missing(
   const ghobject_t &log_oid,
   bool require_rollback)
 {
-  if (is_dirty() && !trimmed.empty()) {
+  if (is_dirty() ) {
+    if( !trimmed.empty()) {
     dout(5) << "write_log_and_missing with: "
 	     << "dirty_to: " << dirty_to
 	     << ", dirty_from: " << dirty_from
@@ -588,6 +589,7 @@ void PGLog::write_log_and_missing(
 	     << ", trimmed_dups: " << trimmed_dups
 	     << ", clear_divergent_priors: " << clear_divergent_priors
 	     << dendl;
+   }
     _write_log_and_missing(
       t, km, km_pg, log, coll, log_oid,
       dirty_to,
@@ -683,7 +685,7 @@ void PGLog::write_log_and_missing(
     eversion_t(),
     eversion_t(),
     set<eversion_t>(),
-    set<string>(),
+    set<eversion_t>(),
     missing,
     true, require_rollback, false,
     eversion_t::max(),
@@ -819,7 +821,7 @@ void PGLog::_write_log_and_missing(
   eversion_t dirty_from,
   eversion_t writeout_from,
   set<eversion_t> &&trimmed,
-  set<string> &&trimmed_dups,
+  set<eversion_t> &&trimmed_dups,
   const pg_missing_tracker_t &missing,
   bool touch_log,
   bool require_rollback,
@@ -831,7 +833,8 @@ void PGLog::_write_log_and_missing(
   set<string> *log_keys_debug
   ) {
   set<string> to_remove;
-  /*
+  set<eversion_t> to_remove_pg;
+
   to_remove_pg.swap(trimmed_dups);
   for (auto& t : trimmed) {
     string key = t.get_key_name();
@@ -840,15 +843,7 @@ void PGLog::_write_log_and_missing(
       assert(it != log_keys_debug->end());
       log_keys_debug->erase(it);
     }
-    to_remove_pg.emplace(std::move(key));
-  }*/
-  eversion_t latest_version;
-  if (!trimmed.empty()) {
-    for (auto& t : trimmed) {
-      if ( latest_version < t ) {
-        latest_version = t;
-      }
-    }
+    to_remove_pg.emplace(std::move(t));
   }
   trimmed.clear();
 
@@ -964,8 +959,14 @@ void PGLog::_write_log_and_missing(
 
   if (!to_remove.empty())
     t.omap_rmkeys(coll, log_oid, to_remove);
-  if (latest_version != eversion_t())
+  if (!to_remove_pg.empty()) {
+    eversion_t latest_version;
+    for (auto& t : to_remove_pg) {
+      if ( latest_version < t )
+        latest_version = t;
+    }
     t.omap_rmpgs(coll, log_oid, latest_version);
+  }
 }
 
 // static
@@ -978,7 +979,7 @@ void PGLog::_write_log_and_missing(
   eversion_t dirty_from,
   eversion_t writeout_from,
   set<eversion_t> &&trimmed,
-  set<string> &&trimmed_dups,
+  set<eversion_t> &&trimmed_dups,
   const pg_missing_tracker_t &missing,
   bool touch_log,
   bool require_rollback,
@@ -990,7 +991,11 @@ void PGLog::_write_log_and_missing(
   set<string> *log_keys_debug
   ) {
   set<string> to_remove;
-  to_remove.swap(trimmed_dups);
+  for (auto& t: trimmed_dups) {
+    string key = t.get_key_name();
+    to_remove.insert(key);
+  }
+  trimmed_dups.clear();
   for (auto& t : trimmed) {
     string key = t.get_key_name();
     if (log_keys_debug) {

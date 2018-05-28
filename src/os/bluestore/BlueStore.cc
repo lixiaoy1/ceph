@@ -4394,7 +4394,7 @@ int BlueStore::_open_fm(bool create)
     // being able to allocate in units less than bdev block size 
     // seems to be a bad idea.
     assert( cct->_conf->bdev_block_size <= (int64_t)min_alloc_size);
-    fm->create(bdev->get_size(), (int64_t)min_alloc_size, t);
+    fm->create(bdev->get_size()-DEV_RESERVE_CAP, (int64_t)min_alloc_size, t);
 
     // allocate superblock reserved space.  note that we do not mark
     // bluefs space as allocated in the freelist; we instead rely on
@@ -4485,7 +4485,7 @@ int BlueStore::_open_alloc()
   assert(alloc == NULL);
   assert(bdev->get_size());
   alloc = Allocator::create(cct, cct->_conf->bluestore_allocator,
-                            bdev->get_size(),
+                            bdev->get_size()-DEV_RESERVE_CAP,
                             min_alloc_size);
   if (!alloc) {
     lderr(cct) << __func__ << " Allocator::unknown alloc type "
@@ -10066,6 +10066,26 @@ void BlueStore::_pad_zeros(
   assert(bl->length() == length);
 }
 
+void BlueStore::_write_pg_log(
+  TransContext *txc,
+  CollectionRef& c,
+  OnodeRef o,
+  uint64_t offset,
+  uint64_t length,
+  bufferlist& bl,
+  uint32_t fadvise_flags)
+{
+  dout(1) << __func__
+	   << " " << o->oid
+	   << " 0x" << std::hex << offset << "~" << length
+	   << " fadvise_flags 0x" << std::hex << fadvise_flags << std::dec
+	   << dendl;
+  assert(length != 0);
+
+  bdev->aio_write(offset, bl,
+                  &txc->ioc, false);
+}
+
 void BlueStore::_do_write_small(
     TransContext *txc,
     CollectionRef &c,
@@ -11091,13 +11111,13 @@ int BlueStore::_add_pg_log_entries(TransContext *txc,
       bufferlist log_entry;
       log_entry.reserve(PGLOG_ENTRY_SIZE);
       encode(value, log_entry);
-      uint32_t off = c->tail *PGLOG_ENTRY_SIZE;
+      uint32_t off = c->tail *PGLOG_ENTRY_SIZE + DEV_RESERVE_CAP;
       uint32_t len = log_entry.length();
       assert(len <= PGLOG_ENTRY_SIZE);
       _apply_padding(0, PGLOG_ENTRY_SIZE-len, log_entry);
       uint32_t len2 = log_entry.length();
       assert(len2 == PGLOG_ENTRY_SIZE);
-      _write(txc, c, o, off, len2, log_entry, fadvise_flags);
+      _write_pg_log(txc, c, o, off, len2, log_entry, fadvise_flags);
       dout(1) << __func__ << " cid: " << c->cid << " oid: " << o->oid
 	<< " write key: " << pretty_binary_string(version.get_key_name())
 	<< " head: " << c->head << " tail: " << c->tail << dendl;
@@ -11112,12 +11132,15 @@ int BlueStore::_add_pg_log_entries(TransContext *txc,
       }
       assert(c->tail != c->head);     
     }
+
+    /*
     string final_key;
     _key_encode_u64(o->onode.nid, &final_key);
     final_key += ".tail";
     bufferlist value;
     encode(c->tail, value);
     txc->t->set(PREFIX_OMAP, final_key, value);
+    */
 
     txc->note_modified_object(o);
     r = 0;

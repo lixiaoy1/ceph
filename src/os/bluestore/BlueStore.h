@@ -57,6 +57,7 @@ class BlueStoreRepairer;
 #define MAX_BUFFER_SLOP_RATIO_DEN  8  // so actually 1/N
 const static uint32_t PGLOG_ENTRY_SIZE = 512;
 const static uint32_t MAX_PG_LOGS = 5000;
+const static uint64_t DEV_RESERVE_CAP = 1024*1024*1024;
 
 enum {
   l_bluestore_first = 732430,
@@ -2564,6 +2565,15 @@ private:
 		uint64_t offset, uint64_t length,
 		bufferlist& bl,
 		uint32_t fadvise_flags);
+
+  void _write_pg_log(TransContext *txc,
+                     CollectionRef& c,
+                     OnodeRef o,
+                     uint64_t offset,
+                     uint64_t length,
+                     bufferlist& bl,
+                     uint32_t fadvise_flags);
+
   void _do_write_data(TransContext *txc,
                       CollectionRef& c,
                       OnodeRef o,

@@ -55,7 +55,7 @@ class BlueStoreRepairer;
 
 // constants for Buffer::optimize()
 #define MAX_BUFFER_SLOP_RATIO_DEN  8  // so actually 1/N
-const static uint32_t PGLOG_ENTRY_SIZE = 512;
+const static uint32_t PGLOG_ENTRY_SIZE = 4096;
 const static uint32_t MAX_PG_LOGS = 5000;
 const static uint64_t DEV_RESERVE_CAP = 1024*1024*1024;
 

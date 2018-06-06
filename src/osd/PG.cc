@@ -3370,6 +3370,7 @@ int PG::_prepare_write_info(CephContext* cct,
   if (logger)
     logger->inc(l_osd_pg_info);
 
+/*
   // try to do info efficiently?
   if (!dirty_big_info && try_fast_info &&
       info.last_update > last_written_info.last_update) {
@@ -3397,6 +3398,7 @@ int PG::_prepare_write_info(CephContext* cct,
     }
     *_dout << dendl;
   }
+*/
   last_written_info = info;
 
   // info.  store purged_snaps separately.
@@ -3543,10 +3545,17 @@ void PG::write_if_dirty(ObjectStore::Transaction& t)
   if (dirty_big_info || dirty_info)
     prepare_write_info(&km);
   pg_log.write_log_and_missing(t, &km, &km_pg, coll, pgmeta_oid, pool.info.require_rollback());
-  if (!km.empty()) 
-    t.omap_setkeys(coll, pgmeta_oid, km);
-  if (!km_pg.empty())
+
+  if (!km_pg.empty())  {
+    if (km.find(info_key) != km.end()) {
+      map<string,bufferlist>::iterator it = km.find(info_key);
+      km_pg.rbegin()->second.append(it->second);
+      km.erase(it);
+    }
     t.omap_setpgs(coll, pgmeta_oid, km_pg);
+  }
+  if (!km.empty())
+    t.omap_setkeys(coll, pgmeta_oid, km);
 }
 
 void PG::trim_log()

@@ -10081,6 +10081,8 @@ void BlueStore::_write_pg_log(
 	   << " fadvise_flags 0x" << std::hex << fadvise_flags << std::dec
 	   << dendl;
   assert(length != 0);
+  Checksummer::calculate<Checksummer::xxhash32>(
+      , b_off, bl.length(), bl, &csum_data);
 
   bdev->aio_write(offset, bl,
                   &txc->ioc, false);

@@ -10071,20 +10071,46 @@ void BlueStore::_write_pg_log(
   CollectionRef& c,
   OnodeRef o,
   uint64_t offset,
-  uint64_t length,
   bufferlist& bl,
   uint32_t fadvise_flags)
 {
   dout(1) << __func__
 	   << " " << o->oid
-	   << " 0x" << std::hex << offset << "~" << length
+	   << " 0x" << std::hex << offset
 	   << " fadvise_flags 0x" << std::hex << fadvise_flags << std::dec
 	   << dendl;
-  assert(length != 0);
-  Checksummer::calculate<Checksummer::xxhash32>(
-      , b_off, bl.length(), bl, &csum_data);
+  assert(bl.length() != 0);
+  int csum = csum_type.load();
+  csum = select_option(
+    "csum_type",
+    csum,
+    [&]() {
+      int val;
+      if (c->pool_opts.get(pool_opts_t::CSUM_TYPE, &val)) {
+        return  boost::optional<int>(val);
+      }
+      return boost::optional<int>();
+    }
+  );
 
-  bdev->aio_write(offset, bl,
+  PGLogHead head;
+  head.init_csum(csum, bl.length());
+  head.calc_csum(bl);
+
+  bufferlist l;
+  l.reserve(PGLOG_ENTRY_SIZE);
+  head.encode(l);
+  uint64_t head_tail_pad = PGLOG_OFFSET - l.length();
+  if (head_tail_pad > 0)
+    _apply_padding(0, head_tail_pad, l);
+  l.append(bl);
+  uint64_t tail_pad = PGLOG_ENTRY_SIZE-l.length();
+  assert(tail_pad >= 0);
+  if (tail_pad > 0)
+    _apply_padding(0, tail_pad, l); 
+  assert(l.length() == PGLOG_ENTRY_SIZE); 
+ 
+  bdev->aio_write(offset, l,
                   &txc->ioc, false);
 }
 
@@ -11111,15 +11137,11 @@ int BlueStore::_add_pg_log_entries(TransContext *txc,
       decode(value, p);
       // 
       bufferlist log_entry;
-      log_entry.reserve(PGLOG_ENTRY_SIZE);
       encode(value, log_entry);
       uint32_t off = c->tail *PGLOG_ENTRY_SIZE + DEV_RESERVE_CAP;
       uint32_t len = log_entry.length();
-      assert(len <= PGLOG_ENTRY_SIZE);
-      _apply_padding(0, PGLOG_ENTRY_SIZE-len, log_entry);
-      uint32_t len2 = log_entry.length();
-      assert(len2 == PGLOG_ENTRY_SIZE);
-      _write_pg_log(txc, c, o, off, len2, log_entry, fadvise_flags);
+      assert(len <= (PGLOG_ENTRY_SIZE - PGLOG_OFFSET));
+      _write_pg_log(txc, c, o, off, log_entry, fadvise_flags);
       dout(1) << __func__ << " cid: " << c->cid << " oid: " << o->oid
 	<< " write key: " << pretty_binary_string(version.get_key_name())
 	<< " head: " << c->head << " tail: " << c->tail << dendl;

@@ -58,6 +58,7 @@ class BlueStoreRepairer;
 const static uint32_t PGLOG_ENTRY_SIZE = 4096;
 const static uint32_t MAX_PG_LOGS = 5000;
 const static uint64_t DEV_RESERVE_CAP = 1024*1024*1024;
+const static uint64_t PGLOG_OFFSET = 100;
 
 enum {
   l_bluestore_first = 732430,
@@ -149,6 +150,7 @@ public:
 
   struct BufferSpace;
   struct Collection;
+  struct PGLogHead;
   typedef boost::intrusive_ptr<Collection> CollectionRef;
 
   struct AioContext {
@@ -1349,6 +1351,62 @@ public:
 
   class OpSequencer;
   typedef boost::intrusive_ptr<OpSequencer> OpSequencerRef;
+
+  struct PGLogHead {
+    uint8_t version = 0;
+    uint8_t csum_type = Checksummer::CSUM_NONE;
+    uint64_t length;
+    bufferptr csum_data;
+
+    void encode(bufferlist& bl) const {
+      auto p = bl.get_contiguous_appender(PGLOG_OFFSET, true);
+      assert(version == 0);
+      denc_varint(version, p);
+      denc_varint(csum_type, p);
+      denc_varint(length, p);
+      denc_varint(csum_data.length(), p);
+      memcpy(p.get_pos_add(csum_data.length()), csum_data.c_str(),
+	     csum_data.length());
+    }
+    void init_csum(unsigned type, unsigned len) {
+      csum_type = type;
+      length = len;
+      if (csum_type != Checksummer::CSUM_NONE) {
+        uint32_t chunk_size = len;
+        size_t csum_value_size = Checksummer::get_csum_value_size(csum_type);
+        csum_data = buffer::create(csum_value_size * len / chunk_size);
+        csum_data.zero();
+        csum_data.reassign_to_mempool(mempool::mempool_bluestore_cache_other);
+      }
+    }
+
+    void calc_csum(const bufferlist& bl)
+    {
+      uint32_t chunk_size = length;
+      switch (csum_type) {
+      case Checksummer::CSUM_XXHASH32:
+        Checksummer::calculate<Checksummer::xxhash32>(
+          chunk_size, 0, bl.length(), bl, &csum_data);
+        break;
+      case Checksummer::CSUM_XXHASH64:
+        Checksummer::calculate<Checksummer::xxhash64>(
+          chunk_size, 0, bl.length(), bl, &csum_data);
+        break;;
+      case Checksummer::CSUM_CRC32C:
+        Checksummer::calculate<Checksummer::crc32c>(
+          chunk_size, 0, bl.length(), bl, &csum_data);
+        break;
+      case Checksummer::CSUM_CRC32C_16:
+        Checksummer::calculate<Checksummer::crc32c_16>(
+          chunk_size, 0, bl.length(), bl, &csum_data);
+        break;
+      case Checksummer::CSUM_CRC32C_8:
+        Checksummer::calculate<Checksummer::crc32c_8>(
+          chunk_size, 0, bl.length(), bl, &csum_data);
+        break;
+      }
+    }
+  };
 
   struct Collection : public CollectionImpl {
     BlueStore *store;
@@ -2570,7 +2628,6 @@ private:
                      CollectionRef& c,
                      OnodeRef o,
                      uint64_t offset,
-                     uint64_t length,
                      bufferlist& bl,
                      uint32_t fadvise_flags);
 

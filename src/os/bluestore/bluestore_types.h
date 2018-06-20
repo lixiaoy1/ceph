@@ -47,16 +47,20 @@ struct bluestore_bdev_label_t {
 WRITE_CLASS_ENCODER(bluestore_bdev_label_t)
 
 ostream& operator<<(ostream& out, const bluestore_bdev_label_t& l);
+struct bluestore_pextent_t;
+typedef mempool::bluestore_cache_other::vector<bluestore_pextent_t> PExtentVector;
 
 /// collection metadata
 struct bluestore_cnode_t {
   uint32_t bits;   ///< how many bits of coll pgid are significant
+  PExtentVector extents;
 
   explicit bluestore_cnode_t(int b=0) : bits(b) {}
 
   DENC(bluestore_cnode_t, v, p) {
     DENC_START(1, 1, p);
     denc(v.bits, p);
+    denc(v.extents, p);
     DENC_FINISH(p);
   }
   void dump(Formatter *f) const;
@@ -99,7 +103,7 @@ WRITE_CLASS_DENC(bluestore_pextent_t)
 
 ostream& operator<<(ostream& out, const bluestore_pextent_t& o);
 
-typedef mempool::bluestore_cache_other::vector<bluestore_pextent_t> PExtentVector;
+//typedef mempool::bluestore_cache_other::vector<bluestore_pextent_t> PExtentVector;
 
 template<>
 struct denc_traits<PExtentVector> {

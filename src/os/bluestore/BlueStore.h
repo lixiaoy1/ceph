@@ -56,9 +56,10 @@ class BlueStoreRepairer;
 // constants for Buffer::optimize()
 #define MAX_BUFFER_SLOP_RATIO_DEN  8  // so actually 1/N
 const static uint32_t PGLOG_ENTRY_SIZE = 4096;
-const static uint32_t MAX_PG_LOGS = 5000;
-const static uint64_t DEV_RESERVE_CAP = 1024*1024*1024;
-const static uint64_t PGLOG_OFFSET = 100;
+const static uint32_t MAX_PG_LOGS = 4096;
+const static uint64_t DEV_RESERVE_CAP = 5368709120; //5*1024*1024*1024;
+const static uint64_t PGLOG_OFFSET = 128;
+const static uint64_t PGLOG_STRIPE = 16777216; // 16*1024*1024
 
 enum {
   l_bluestore_first = 732430,
@@ -1417,7 +1418,6 @@ public:
 
     bool exists;
 
-    //pg log entries
     uint32_t head;    // first pg log entry
     uint32_t tail;   // next new pg log entry
     vector<eversion_t> logs; 
@@ -1454,6 +1454,13 @@ public:
       b->shared_blob = new SharedBlob(this);
       return b;
     }
+
+    uint64_t get_pglog_offset(uint64_t entry) {
+      PExtentVector extents = cnode.extents;
+      // Currently just extent 0
+      uint64_t offset = extents[0].offset + entry*PGLOG_ENTRY_SIZE;
+      return offset;
+    } 
 
     bool contains(const ghobject_t& oid) {
       if (cid.is_meta())
@@ -1894,6 +1901,8 @@ private:
   int path_fd = -1;  ///< open handle to $path
   int fsid_fd = -1;  ///< open handle (locked) to $path/fsid
   bool mounted = false;
+
+  Allocator *pglog_alloc = nullptr;
 
   RWLock coll_lock = {"BlueStore::coll_lock"};  ///< rwlock to protect coll_map
   mempool::bluestore_cache_other::unordered_map<coll_t, CollectionRef> coll_map;
@@ -2735,6 +2744,7 @@ private:
 			CollectionRef& c,
 			CollectionRef& d,
 			unsigned bits, int rem);
+  uint64_t get_pglog_offset();
 };
 
 static inline void intrusive_ptr_add_ref(BlueStore::Onode *o) {

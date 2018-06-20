@@ -4494,6 +4494,17 @@ int BlueStore::_open_alloc()
     return -EINVAL;
   }
 
+  pglog_alloc = Allocator::create(cct, "bitmap", 
+                                  DEV_RESERVE_CAP, 
+                                  PGLOG_STRIPE);
+  if (!pglog_alloc) {
+    lderr(cct) << __func__ << " unable to alloc pglog"
+               << dendl;
+    return -EINVAL;
+  } 
+  pglog_alloc->init_add_free(0,
+                             DEV_RESERVE_CAP);
+
   uint64_t num = 0, bytes = 0;
 
   dout(1) << __func__ << " opening allocation metadata" << dendl;
@@ -4527,8 +4538,12 @@ void BlueStore::_close_alloc()
 
   assert(alloc);
   alloc->shutdown();
+  assert(pglog_alloc);
+  pglog_alloc->shutdown();
+  delete pglog_alloc;
   delete alloc;
   alloc = NULL;
+  pglog_alloc = NULL;
 }
 
 int BlueStore::_open_fsid(bool create)
@@ -10105,7 +10120,6 @@ void BlueStore::_write_pg_log(
     _apply_padding(0, head_tail_pad, l);
   l.append(bl);
   uint64_t tail_pad = PGLOG_ENTRY_SIZE-l.length();
-  assert(tail_pad >= 0);
   if (tail_pad > 0)
     _apply_padding(0, tail_pad, l); 
   assert(l.length() == PGLOG_ENTRY_SIZE); 
@@ -11138,8 +11152,8 @@ int BlueStore::_add_pg_log_entries(TransContext *txc,
       // 
       bufferlist log_entry;
       encode(value, log_entry);
-      uint32_t off = c->tail *PGLOG_ENTRY_SIZE + DEV_RESERVE_CAP;
-      uint32_t len = log_entry.length();
+      uint64_t len = log_entry.length();
+      uint64_t off = c->get_pglog_offset(c->tail) + get_pglog_offset();
       assert(len <= (PGLOG_ENTRY_SIZE - PGLOG_OFFSET));
       _write_pg_log(txc, c, o, off, log_entry, fadvise_flags);
       dout(1) << __func__ << " cid: " << c->cid << " oid: " << o->oid
@@ -11948,6 +11962,10 @@ int BlueStore::_rename(TransContext *txc,
   return r;
 }
 
+uint64_t BlueStore::get_pglog_offset() {
+  return (bdev->get_size() - DEV_RESERVE_CAP);
+}
+
 // collections
 
 int BlueStore::_create_collection(
@@ -11970,6 +11988,11 @@ int BlueStore::_create_collection(
     assert(p != new_coll_map.end());
     *c = p->second;
     (*c)->cnode.bits = bits;
+    // Allocate stripe for pglog
+    int r = pglog_alloc->reserve(PGLOG_STRIPE);
+    assert(r == 0);
+    int64_t alloc_len = pglog_alloc->allocate(PGLOG_STRIPE, PGLOG_STRIPE, PGLOG_STRIPE, 0, &((*c)->cnode.extents));
+    assert(alloc_len == PGLOG_STRIPE);
     coll_map[cid] = *c;
     new_coll_map.erase(p);
   }
@@ -12030,6 +12053,12 @@ int BlueStore::_remove_collection(TransContext *txc, const coll_t &cid,
         }
       }
       if (!exists) {
+        interval_set<uint64_t> allocated;
+        for ( auto it = (*c)->cnode.extents.begin(); it != (*c)->cnode.extents.end(); it++)
+        {
+          allocated.insert(it->offset, it->length);
+        }
+        pglog_alloc->release(allocated);
         coll_map.erase(cid);
         txc->removed_collections.push_back(*c);
         (*c)->exists = false;

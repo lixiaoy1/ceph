@@ -10084,16 +10084,9 @@ void BlueStore::_pad_zeros(
 void BlueStore::_write_pg_log(
   TransContext *txc,
   CollectionRef& c,
-  OnodeRef o,
-  uint64_t offset,
   bufferlist& bl,
   uint32_t fadvise_flags)
 {
-  dout(1) << __func__
-	   << " " << o->oid
-	   << " 0x" << std::hex << offset
-	   << " fadvise_flags 0x" << std::hex << fadvise_flags << std::dec
-	   << dendl;
   assert(bl.length() != 0);
   int csum = csum_type.load();
   csum = select_option(
@@ -10113,19 +10106,28 @@ void BlueStore::_write_pg_log(
   head.calc_csum(bl);
 
   bufferlist l;
-  l.reserve(PGLOG_ENTRY_SIZE);
   head.encode(l);
   uint64_t head_tail_pad = PGLOG_OFFSET - l.length();
   if (head_tail_pad > 0)
     _apply_padding(0, head_tail_pad, l);
   l.append(bl);
-  uint64_t tail_pad = PGLOG_ENTRY_SIZE-l.length();
+  uint64_t tail_pad = p2nphase(l.length(), PGLOG_BLOCK_SIZE);
   if (tail_pad > 0)
-    _apply_padding(0, tail_pad, l); 
-  assert(l.length() == PGLOG_ENTRY_SIZE); 
+    _apply_padding(0, tail_pad, l);
+
+  // The current sector is full.
+  if (c->pglog_offset + l.length() > PGLOG_SECTOR_SIZE) {
+    c->tail++;
+    c->pglog_offset = 0;
+  }
+
+  uint64_t offset = c->get_pglog_offset(c->tail) + get_pglog_offset()
+                   + c->pglog_offset;
  
   bdev->aio_write(offset, l,
                   &txc->ioc, false);
+  c->pglog_offset += l.length();
+  assert(c->pglog_offset <= PGLOG_SECTOR_SIZE);
 }
 
 void BlueStore::_do_write_small(
@@ -11144,6 +11146,7 @@ int BlueStore::_add_pg_log_entries(TransContext *txc,
     bufferlist::iterator p = bl.begin();
     __u32 num;
     decode(num, p);
+    uint32_t old_tail = c->tail;
     while (num--) {
       eversion_t version;
       bufferlist value;
@@ -11152,33 +11155,28 @@ int BlueStore::_add_pg_log_entries(TransContext *txc,
       // 
       bufferlist log_entry;
       encode(value, log_entry);
-      uint64_t len = log_entry.length();
-      uint64_t off = c->get_pglog_offset(c->tail) + get_pglog_offset();
-      assert(len <= (PGLOG_ENTRY_SIZE - PGLOG_OFFSET));
-      _write_pg_log(txc, c, o, off, log_entry, fadvise_flags);
-      dout(1) << __func__ << " cid: " << c->cid << " oid: " << o->oid
+      _write_pg_log(txc, c, log_entry, fadvise_flags);
+      dout(10) << __func__ << " cid: " << c->cid << " oid: " << o->oid
 	<< " write key: " << pretty_binary_string(version.get_key_name())
 	<< " head: " << c->head << " tail: " << c->tail << dendl;
 
       c->logs[c->tail] = version;
       // Update tail
-      c->tail++;
       assert(c->tail <= MAX_PG_LOGS);
       if (c->tail == MAX_PG_LOGS) {
-	  dout(1) << __func__ << c->cid << " tail reset to 0" << dendl;
+	  dout(10) << __func__ << c->cid << " tail reset to 0" << dendl;
           c->tail = 0;
       }
-      assert(c->tail != c->head);     
     }
 
-    /*
-    string final_key;
-    _key_encode_u64(o->onode.nid, &final_key);
-    final_key += ".tail";
-    bufferlist value;
-    encode(c->tail, value);
-    txc->t->set(PREFIX_OMAP, final_key, value);
-    */
+    if (c->tail != old_tail) {
+      string final_key;
+      _key_encode_u64(o->onode.nid, &final_key);
+      final_key += ".tail";
+      bufferlist value;
+      encode(c->tail, value);
+      txc->t->set(PREFIX_OMAP, final_key, value);
+    }
 
     txc->note_modified_object(o);
     r = 0;
@@ -11199,17 +11197,15 @@ int BlueStore::_rm_pg_log_entries(TransContext *txc,
     
     // delete key from logs_set.
     uint32_t index = c->head;
-    while (index != c->tail) {
-        if (c->logs[index] == version)
-	    break;
-	index++;
-	if (index == MAX_PG_LOGS)
-	   index = 0;	
+    // TODO 
+    while (c->logs[index] <= version) {
+        index++;
+        if (index == MAX_PG_LOGS)
+           index = 0;
     }
-    assert(index != c->tail);
+    c->head = index;
 
-    c->head = (index + 1)%MAX_PG_LOGS;
-    dout(1) << __func__ << " cid: " << c->cid
+    dout(10) << __func__ << " cid: " << c->cid
 	    << " head: " << c->head << " tail: " << c->tail << dendl;
 
     string final_key;
@@ -11217,6 +11213,7 @@ int BlueStore::_rm_pg_log_entries(TransContext *txc,
     final_key += ".head";
     bufferlist value;
     encode(c->head, value);
+    encode(version, value);  // last delete entry
     txc->t->set(PREFIX_OMAP, final_key, value);
     
     txc->note_modified_object(o);

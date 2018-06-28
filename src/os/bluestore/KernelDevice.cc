@@ -738,8 +738,9 @@ int KernelDevice::aio_write(
   dout(20) << __func__ << " 0x" << std::hex << off << "~" << len << std::dec
 	   << (buffered ? " (buffered)" : " (direct)")
 	   << dendl;
-  assert(off % block_size == 0);
-  assert(len % block_size == 0);
+  // TODO
+  assert(off % block_size == 0 || off % 512 == 0);
+  assert(len % block_size == 0 || len % 512 == 0);
   assert(len > 0);
   assert(off < size);
   assert(off + len <= size);

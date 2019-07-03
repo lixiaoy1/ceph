@@ -274,9 +274,22 @@ CMAKE_DEPENDENT_OPTION(WITH_BLUESTORE_PMEM "Enable PMDK libraries" OFF
 CMAKE_DEPENDENT_OPTION(WITH_SYSTEM_PMDK "Require and build with system PMDK" OFF
   "WITH_BLUESTORE_PMEM" OFF)
 
+CMAKE_DEPENDENT_OPTION(WITH_RWL "Enable librbd persistent write back cache" OFF
+  "WITH_RBD" OFF)
+
+CMAKE_DEPENDENT_OPTION(WITH_SYSTEM_PMDK "Require and build with system PMDK" OFF
+  "WITH_RWL" OFF)
+
 if(WITH_BLUESTORE_PMEM)
   set(HAVE_BLUESTORE_PMEM ON)
 endif()
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "i386|i686|amd64|x86_64")
+  option(WITH_RWL "Enable librbd persistent write back cache" ON)
+else()
+  # ARM64 PMDK support is still experimental
+  option(WITH_RWL "Enable librbd persistent write back cache" OFF)
+endif(CMAKE_SYSTEM_PROCESSOR MATCHES "i386|i686|amd64|x86_64")
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "i386|i686|amd64|x86_64|AMD64|aarch64")
   option(WITH_SPDK "Enable SPDK" ON)

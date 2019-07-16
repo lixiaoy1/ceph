@@ -20,7 +20,7 @@ set(librbd_test
   test_Trash.cc
   journal/test_Entries.cc
   journal/test_Replay.cc)
-if(WITH_RWL)
+if(WITH_RBD_RWL)
   list(APPEND librbd_test
     test_WriteLogMap.cc
     test_BlockGuard.cc)

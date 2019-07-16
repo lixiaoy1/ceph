@@ -7,9 +7,9 @@ function(add_ceph_test test_name test_path)
     add_dependencies(tests ${test_name})
   endif()
   set(PMEM_FORCE "0")
-  if(WITH_RWL)
+  if(WITH_RBD_RWL)
     set(PMEM_FORCE "1")
-  endif(WITH_RWL)
+  endif()
   set_property(TEST
     ${test_name}
     PROPERTY ENVIRONMENT 

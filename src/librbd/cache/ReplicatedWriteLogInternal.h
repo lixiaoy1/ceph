@@ -2540,6 +2540,7 @@ void ReplicatedWriteLog<I>::init(Context *on_finish) {
 	m_image_ctx.op_work_queue->queue(on_finish, r);
       }
     });
+  m_image_ctx.disable_zero_copy = true;
   /* Initialize the cache layer below first */
   m_image_writeback->init(ctx);
 }

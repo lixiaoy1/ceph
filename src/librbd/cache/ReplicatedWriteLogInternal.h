@@ -2311,11 +2311,11 @@ void ReplicatedWriteLog<I>::load_existing_entries(DeferredContexts &later) {
 	  assert(previous_sync_point_entry->m_prior_sync_point_flushed);
 	  assert(previous_sync_point_entry->m_writes == previous_sync_point_entry->m_writes_flushed);
 	}
-	previous_sync_point_entry = sync_point_entry;
       } else {
 	/* There are no previous sync points, so we'll consider them flushed */
 	sync_point_entry->m_prior_sync_point_flushed = true;
       }
+      previous_sync_point_entry = sync_point_entry;
       ldout(m_image_ctx.cct, 10) << "Loaded to sync point=[" << *sync_point_entry << dendl;
     } else {
       lderr(m_image_ctx.cct) << "Unexpected entry type in entry=[" << *log_entry << "]" << dendl;

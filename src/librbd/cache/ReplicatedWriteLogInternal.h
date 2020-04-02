@@ -136,8 +136,7 @@ typedef ReplicatedWriteLog<ImageCtx>::Extents Extents;
  */
 const BlockExtent block_extent(const uint64_t offset_bytes, const uint64_t length_bytes)
 {
-  return BlockExtent(offset_bytes,
-		     offset_bytes + length_bytes - 1);
+  return BlockExtent(offset_bytes, offset_bytes + length_bytes);
 }
 
 const BlockExtent block_extent(const Extent& image_extent)
@@ -147,8 +146,7 @@ const BlockExtent block_extent(const Extent& image_extent)
 
 const Extent image_extent(const BlockExtent& block_extent)
 {
-  return Extent(block_extent.block_start,
-		block_extent.block_end - block_extent.block_start + 1);
+  return Extent(block_extent.block_start, block_extent.block_end - block_extent.block_start);
 }
 
 const BlockExtent WriteLogPmemEntry::block_extent() {

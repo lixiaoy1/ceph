@@ -216,7 +216,7 @@ void LogMap<T, T_S>::add_log_entry_locked(std::shared_ptr<T> log_entry) {
 	} else {
 	  assert(map_entry.block_extent.block_end < entry.block_extent.block_end);
 	  /* The new entry occludes the beginning of the old entry */
-	  BlockExtent adjusted_extent(map_entry.block_extent.block_end+1,
+	  BlockExtent adjusted_extent(map_entry.block_extent.block_end,
 				      entry.block_extent.block_end);
 	  adjust_map_entry_locked(entry, adjusted_extent);
 	}
@@ -225,7 +225,7 @@ void LogMap<T, T_S>::add_log_entry_locked(std::shared_ptr<T> log_entry) {
 	if (map_entry.block_extent.block_end >= entry.block_extent.block_end) {
 	  /* The new entry occludes the end of the old entry */
 	  BlockExtent adjusted_extent(entry.block_extent.block_start,
-				      map_entry.block_extent.block_start-1);
+				      map_entry.block_extent.block_start);
 	  adjust_map_entry_locked(entry, adjusted_extent);
 	} else {
 	  /* The new entry splits the old entry */
@@ -301,10 +301,10 @@ void LogMap<T, T_S>::split_map_entry_locked(LogMapEntry<T> &map_entry, BlockExte
   m_block_to_log_entry_map.erase(it);
 
   BlockExtent left_extent(split.block_extent.block_start,
-			  removed_extent.block_start-1);
+			  removed_extent.block_start);
   m_block_to_log_entry_map.insert(LogMapEntry<T>(left_extent, split.log_entry));
 
-  BlockExtent right_extent(removed_extent.block_end+1,
+  BlockExtent right_extent(removed_extent.block_end,
 			   split.block_extent.block_end);
   m_block_to_log_entry_map.insert(LogMapEntry<T>(right_extent, split.log_entry));
 
@@ -373,7 +373,7 @@ LogMapEntries<T> LogMap<T, T_S>::find_map_entries_locked(BlockExtent &block_exte
 template <typename T, typename T_S>
 bool LogMap<T, T_S>::LogMapEntryCompare::operator()(const LogMapEntry<T> &lhs,
 						    const LogMapEntry<T> &rhs) const {
-  if (lhs.block_extent.block_end < rhs.block_extent.block_start) {
+  if (lhs.block_extent.block_end <= rhs.block_extent.block_start) {
     return true;
   }
   return false;

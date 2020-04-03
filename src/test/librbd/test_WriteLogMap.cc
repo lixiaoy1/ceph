@@ -22,8 +22,7 @@ struct TestLogEntry {
   const uint64_t get_offset_bytes() { return image_offset_bytes; }
   const uint64_t get_write_bytes() { return write_bytes; }
   const BlockExtent block_extent() {
-    return BlockExtent(image_offset_bytes,
-		       image_offset_bytes + write_bytes -1);
+    return BlockExtent(image_offset_bytes, image_offset_bytes + write_bytes);
   }
   bool is_writer() { return true; }
   uint32_t get_map_ref() { return(referring_map_entries); }
@@ -57,9 +56,7 @@ public:
 uint64_t BlockToBytes(int n) { return n; }
 
 TEST_F(TestWriteLogMap, Simple) {
-  TestLogEntry e(0,0);
   TestLogEntries es;
-  TestMapEntry me(make_shared<TestLogEntry>(e));
   TestLogMapEntries lme;
   TestLogMap  map(m_cct);
 
@@ -89,7 +86,7 @@ TEST_F(TestWriteLogMap, Simple) {
 
   /* 4-11 will be e1 */
   for (int i=4; i<12; i++) {
-    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i));
+    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i + 1));
     int numfound = found0.size();
     ASSERT_EQ(1, numfound);
     ASSERT_EQ(e1, found0.front().log_entry);
@@ -98,7 +95,7 @@ TEST_F(TestWriteLogMap, Simple) {
   map.remove_log_entry(e1);
   /* Nothing should be found */
   for (int i=4; i<12; i++) {
-    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i));
+    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i + 1));
     int numfound = found0.size();
     ASSERT_EQ(0, numfound);
   }
@@ -123,7 +120,7 @@ TEST_F(TestWriteLogMap, OverlapFront) {
 
   /* 0-7 will be e1 */
   for (int i=0; i<8; i++) {
-    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i));
+    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i + 1));
     int numfound = found0.size();
     ASSERT_EQ(1, numfound);
     ASSERT_EQ(e1, found0.front().log_entry);
@@ -131,7 +128,7 @@ TEST_F(TestWriteLogMap, OverlapFront) {
 
   /* 8-11 will be e0 */
   for (int i=8; i<12; i++) {
-    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i));
+    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i + 1));
     int numfound = found0.size();
     ASSERT_EQ(1, numfound);
     ASSERT_EQ(e0, found0.front().log_entry);
@@ -157,7 +154,7 @@ TEST_F(TestWriteLogMap, OverlapBack) {
 
   /* 0-3 will be e0 */
   for (int i=0; i<4; i++) {
-    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i));
+    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i + 1));
     int numfound = found0.size();
     ASSERT_EQ(1, numfound);
     ASSERT_EQ(e0, found0.front().log_entry);
@@ -165,7 +162,7 @@ TEST_F(TestWriteLogMap, OverlapBack) {
 
   /* 4-11 will be e1 */
   for (int i=4; i<12; i++) {
-    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i));
+    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i + 1));
     int numfound = found0.size();
     ASSERT_EQ(1, numfound);
     ASSERT_EQ(e1, found0.front().log_entry);
@@ -175,14 +172,14 @@ TEST_F(TestWriteLogMap, OverlapBack) {
 
   /* 0-3 will find nothing */
   for (int i=0; i<4; i++) {
-    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i));
+    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i + 1));
     int numfound = found0.size();
     ASSERT_EQ(0, numfound);
   }
 
   /* 4-11 will still be e1 */
   for (int i=4; i<12; i++) {
-    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i));
+    TestLogMapEntries found0 = map.find_map_entries(BlockExtent(i, i + 1));
     int numfound = found0.size();
     ASSERT_EQ(1, numfound);
     ASSERT_EQ(e1, found0.front().log_entry);
@@ -196,11 +193,11 @@ TEST_F(TestWriteLogMap, OverlapMiddle) {
   auto e0 = make_shared<TestLogEntry>(BlockToBytes(0), BlockToBytes(1));
   map.add_log_entry(e0);
 
-  TestLogMapEntries found0 = map.find_map_entries(BlockExtent(0, 0));
+  TestLogMapEntries found0 = map.find_map_entries(BlockExtent(0, 1));
   int numfound = found0.size();
   ASSERT_EQ(1, numfound);
   ASSERT_EQ(e0, found0.front().log_entry);
-  TestLogEntries entries = map.find_log_entries(BlockExtent(0, 0));
+  TestLogEntries entries = map.find_log_entries(BlockExtent(0, 1));
   int entriesfound = entries.size();
   ASSERT_EQ(1, entriesfound);
   ASSERT_EQ(e0, entries.front());
@@ -208,11 +205,11 @@ TEST_F(TestWriteLogMap, OverlapMiddle) {
   auto e1 = make_shared<TestLogEntry>(BlockToBytes(1), BlockToBytes(1));
   map.add_log_entry(e1);
 
-  found0 = map.find_map_entries(BlockExtent(1, 1));
+  found0 = map.find_map_entries(BlockExtent(1, 2));
   numfound = found0.size();
   ASSERT_EQ(1, numfound);
   ASSERT_EQ(e1, found0.front().log_entry);
-  entries = map.find_log_entries(BlockExtent(1, 1));
+  entries = map.find_log_entries(BlockExtent(1, 2));
   entriesfound = entries.size();
   ASSERT_EQ(1, entriesfound);
   ASSERT_EQ(e1, entries.front());
@@ -220,11 +217,11 @@ TEST_F(TestWriteLogMap, OverlapMiddle) {
   auto e2 = make_shared<TestLogEntry>(BlockToBytes(2), BlockToBytes(1));
   map.add_log_entry(e2);
 
-  found0 = map.find_map_entries(BlockExtent(2, 2));
+  found0 = map.find_map_entries(BlockExtent(2, 3));
   numfound = found0.size();
   ASSERT_EQ(1, numfound);
   ASSERT_EQ(e2, found0.front().log_entry);
-  entries = map.find_log_entries(BlockExtent(2, 2));
+  entries = map.find_log_entries(BlockExtent(2, 3));
   entriesfound = entries.size();
   ASSERT_EQ(1, entriesfound);
   ASSERT_EQ(e2, entries.front());
@@ -233,11 +230,11 @@ TEST_F(TestWriteLogMap, OverlapMiddle) {
   auto e3 = make_shared<TestLogEntry>(BlockToBytes(1), BlockToBytes(1));
   map.add_log_entry(e3);
 
-  found0 = map.find_map_entries(BlockExtent(1, 1));
+  found0 = map.find_map_entries(BlockExtent(1, 2));
   numfound = found0.size();
   ASSERT_EQ(1, numfound);
   ASSERT_EQ(e3, found0.front().log_entry);
-  entries = map.find_log_entries(BlockExtent(1, 1));
+  entries = map.find_log_entries(BlockExtent(1, 2));
   entriesfound = entries.size();
   ASSERT_EQ(1, entriesfound);
   ASSERT_EQ(e3, entries.front());
@@ -296,7 +293,7 @@ TEST_F(TestWriteLogMap, OverlapSplit) {
   ASSERT_EQ(6, numfound);
   ASSERT_EQ(e0, found0.front().log_entry);
   ASSERT_EQ(uint64_t(0), found0.front().block_extent.block_start);
-  ASSERT_EQ(uint64_t(0), found0.front().block_extent.block_end);
+  ASSERT_EQ(uint64_t(1), found0.front().block_extent.block_end);
   found0.pop_front();
   ASSERT_EQ(e1, found0.front().log_entry);
   found0.pop_front();

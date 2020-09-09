@@ -49,6 +49,7 @@ inline ImageCtx *get_image_ctx(MockTestImageCtx *image_ctx) {
 } // namespace librbd
 
 #include "librbd/io/ImageRequest.cc"
+#include "librbd/io/Utils.cc"
 
 namespace librbd {
 namespace io {

@@ -6,6 +6,7 @@
 #include "include/buffer.h"
 #include "include/rados/librados.hpp"
 #include "include/neorados/RADOS.hpp"
+#include "librbd/internal.h"
 #include "librbd/io/AioCompletion.h"
 #include "librbd/io/ImageRequest.h"
 #include "osd/osd_types.h"
@@ -121,6 +122,58 @@ void read_parent(I *image_ctx, uint64_t object_no, const Extents &extents,
                             ReadResult{data}, 0, trace);
 }
 
+uint64_t get_extents_total_length(Extents &extents) {
+  uint64_t total_bytes = 0;
+  for (auto& image_extent : extents) {
+    total_bytes += image_extent.second;
+  }
+  return total_bytes;
+}
+
+template <typename I>
+int clip_request(I *image_ctx, Extents &image_extents) {
+  std::shared_lock image_locker{image_ctx->image_lock};
+  for (auto &image_extent : image_extents) {
+    auto clip_len = image_extent.second;
+    int r = clip_io(librbd::util::get_image_ctx(image_ctx), image_extent.first, &clip_len);
+    if (r < 0) {
+      return r;
+    }
+
+    image_extent.second = clip_len;
+  }
+  return 0;
+}
+
+void set_read_clip_length(Extents &image_extents,
+                          AioCompletion *aio_comp) {
+  uint64_t buffer_length = 0;
+  for (auto &image_extent : image_extents) {
+    buffer_length += image_extent.second;
+  }
+  aio_comp->read_result.set_clip_length(buffer_length);
+}
+
+template <typename I>
+bool finish_request_early_if_readonly(I *image_ctx, AioCompletion *aio_comp) {
+  std::shared_lock image_locker{image_ctx->image_lock};
+  if (image_ctx->snap_id != CEPH_NOSNAP || image_ctx->read_only) {
+    aio_comp->fail(-EROFS);
+    return true;
+  }
+  return false;
+}
+
+bool finish_request_early_if_nodata(Extents &image_extents,
+                                     AioCompletion *aio_comp) {
+  auto total_bytes = get_extents_total_length(image_extents);
+  if (total_bytes == 0) {
+    aio_comp->set_request_count(0);
+    return true;
+  }
+  return false;
+}
+
 } // namespace util
 } // namespace io
 } // namespace librbd
@@ -129,3 +182,7 @@ template void librbd::io::util::read_parent(
     librbd::ImageCtx *image_ctx, uint64_t object_no, const Extents &extents,
     librados::snap_t snap_id, const ZTracer::Trace &trace,
     ceph::bufferlist* data, Context* on_finish);
+template int librbd::io::util::clip_request(
+    librbd::ImageCtx *image_ctx, Extents &image_extents);
+template bool librbd::io::util::finish_request_early_if_readonly(
+    librbd::ImageCtx *image_ctx, librbd::io::AioCompletion *aio_comp);

@@ -48,6 +48,14 @@ ssize_t Io<I>::read(
   ldout(cct, 20) << "ictx=" << &image_ctx << ", off=" << off << ", "
                  << "len = " << len << dendl;
 
+  image_ctx.image_lock.lock_shared();
+  int r = clip_io(util::get_image_ctx(&image_ctx), off, &len);
+  image_ctx.image_lock.unlock_shared();
+  if (r < 0) {
+    lderr(cct) << "invalid IO request: " << cpp_strerror(r) << dendl;
+    return r;
+  }
+
   C_SaferCond ctx;
   auto aio_comp = io::AioCompletion::create(&ctx);
   aio_read(image_ctx, aio_comp, off, len, std::move(read_result), op_flags,

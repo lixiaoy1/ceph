@@ -26,6 +26,7 @@ public:
   virtual void register_dispatch(Dispatch* dispatch) = 0;
   virtual void shut_down_dispatch(DispatchLayer dispatch_layer,
                                   Context* on_finish) = 0;
+  virtual bool dispatch_exist(DispatchLayer dispatch_layer) = 0;
 
   virtual void send(DispatchSpec* dispatch_spec) = 0;
 };

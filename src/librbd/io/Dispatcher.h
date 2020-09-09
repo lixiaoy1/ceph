@@ -86,6 +86,12 @@ public:
     on_finish->complete(0);
   }
 
+  bool dispatch_exist(DispatchLayer dispatch_layer) override {
+    std::unique_lock locker{m_lock};
+    auto it = m_dispatches.find(dispatch_layer);
+    return (it != m_dispatches.end()) ? true : false;
+  }
+
   void send(DispatchSpec* dispatch_spec) {
     auto cct = m_image_ctx->cct;
     ldout(cct, 20) << "dispatch_spec=" << dispatch_spec << dendl;

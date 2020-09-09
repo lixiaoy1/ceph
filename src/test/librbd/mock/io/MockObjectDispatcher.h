@@ -23,6 +23,7 @@ public:
 
   MOCK_METHOD1(register_dispatch, void(ObjectDispatchInterface*));
   MOCK_METHOD2(shut_down_dispatch, void(ObjectDispatchLayer, Context*));
+  MOCK_METHOD1(dispatch_exist, bool(ObjectDispatchLayer));
 
   MOCK_METHOD2(flush, void(FlushSource, Context*));
 

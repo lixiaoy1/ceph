@@ -10,7 +10,13 @@ namespace librbd {
 
 class ImageCtx;
 
+namespace io { class ImageDispatchInterface; }
+
 namespace cache {
+
+template<typename ImageCtxT>
+class ImageCache;
+
 namespace rwl {
 
 template<typename>
@@ -50,6 +56,7 @@ private:
   InitRequest(ImageCtxT &image_ctx, Context *on_finish);
 
   ImageCtxT &m_image_ctx;
+  cache::ImageCache<ImageCtx> *m_image_cache;
   Context *m_on_finish;
 
   int m_error_result;
@@ -63,6 +70,9 @@ private:
 
   void set_feature_bit();
   void handle_set_feature_bit(int r);
+
+  void shutdown_image_cache();
+  void handle_shutdown_image_cache(int r);
 
   void finish();
 

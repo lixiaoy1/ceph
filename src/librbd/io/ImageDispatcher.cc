@@ -6,8 +6,6 @@
 #include "common/AsyncOpTracker.h"
 #include "common/dout.h"
 #include "librbd/ImageCtx.h"
-#include "librbd/Utils.h"
-#include "librbd/io/AsyncOperation.h"
 #include "librbd/io/ImageDispatch.h"
 #include "librbd/io/ImageDispatchInterface.h"
 #include "librbd/io/ImageDispatchSpec.h"
@@ -25,6 +23,67 @@
 
 namespace librbd {
 namespace io {
+
+template <typename I>
+struct ImageDispatcher<I>::C_LayerIterator : public Context {
+  ImageDispatcher* image_dispatcher;
+  Context* on_finish;
+
+  ImageDispatchLayer image_dispatch_layer = IMAGE_DISPATCH_LAYER_NONE;
+
+  C_LayerIterator(ImageDispatcher* image_dispatcher,
+                Context* on_finish)
+    : image_dispatcher(image_dispatcher), on_finish(on_finish) {
+  }
+
+  void complete(int r) override {
+    while (true) {
+      image_dispatcher->m_lock.lock_shared();
+      auto it = image_dispatcher->m_dispatches.upper_bound(
+        image_dispatch_layer);
+      if (it == image_dispatcher->m_dispatches.end()) {
+        image_dispatcher->m_lock.unlock_shared();
+        Context::complete(r);
+        return;
+      }
+
+      auto& image_dispatch_meta = it->second;
+      auto image_dispatch = image_dispatch_meta.dispatch;
+
+      // prevent recursive locking back into the dispatcher while handling IO
+      image_dispatch_meta.async_op_tracker->start_op();
+      image_dispatcher->m_lock.unlock_shared();
+
+      // next loop should start after current layer
+      image_dispatch_layer = image_dispatch->get_dispatch_layer();
+
+      auto handled = execute(image_dispatch, this);
+      image_dispatch_meta.async_op_tracker->finish_op();
+
+      if (handled) {
+        break;
+      }
+    }
+  }
+
+  void finish(int r) override {
+    on_finish->complete(0);
+  }
+  virtual bool execute(ImageDispatchInterface* image_dispatch,
+                       Context* on_finish) = 0;
+};
+
+template <typename I>
+struct ImageDispatcher<I>::C_InvalidateCache : public C_LayerIterator {
+  C_InvalidateCache(ImageDispatcher* image_dispatcher, Context* on_finish)
+    : C_LayerIterator(image_dispatcher, on_finish) {
+  }
+
+  bool execute(ImageDispatchInterface* image_dispatch,
+               Context* on_finish) override {
+    return image_dispatch->invalidate_cache(on_finish);
+  }
+};
 
 template <typename I>
 struct ImageDispatcher<I>::SendVisitor : public boost::static_visitor<bool> {
@@ -194,6 +253,16 @@ ImageDispatcher<I>::ImageDispatcher(I* image_ctx)
 
   m_write_block_dispatch = new WriteBlockImageDispatch<I>(image_ctx);
   this->register_dispatch(m_write_block_dispatch);
+}
+
+template <typename I>
+void ImageDispatcher<I>::invalidate_cache(Context* on_finish) {
+  auto image_ctx = this->m_image_ctx;
+  auto cct = image_ctx->cct;
+  ldout(cct, 5) << dendl;
+
+  auto ctx = new C_InvalidateCache(this, on_finish);
+  ctx->complete(0);
 }
 
 template <typename I>

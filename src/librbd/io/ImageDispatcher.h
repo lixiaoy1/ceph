@@ -30,6 +30,8 @@ class ImageDispatcher : public Dispatcher<ImageCtxT, ImageDispatcherInterface> {
 public:
   ImageDispatcher(ImageCtxT* image_ctx);
 
+  void invalidate_cache(Context* on_finish) override;
+
   void shut_down(Context* on_finish) override;
 
   void apply_qos_schedule_tick_min(uint64_t tick) override;
@@ -49,6 +51,8 @@ protected:
     ImageDispatchSpec* image_dispatch_spec) override;
 
 private:
+  struct C_LayerIterator;
+  struct C_InvalidateCache;
   struct SendVisitor;
   struct PreprocessVisitor;
 

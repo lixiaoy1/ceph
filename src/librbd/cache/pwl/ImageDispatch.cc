@@ -215,7 +215,6 @@ bool ImageDispatch<I>::list_snaps(
   ceph_abort();
 }
 
-
 template <typename I>
 bool ImageDispatch<I>::preprocess_length(
     io::AioCompletion* aio_comp, io::Extents &image_extents) const {
@@ -225,6 +224,11 @@ bool ImageDispatch<I>::preprocess_length(
     return true;
   }
   return false;
+}
+
+bool RWLImageDispatch<I>::invalidate_cache(Context* on_finish) {
+  m_image_cache->invalidate(on_finish);
+  return true;
 }
 
 } // namespace pwl

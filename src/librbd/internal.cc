@@ -24,6 +24,7 @@
 #include "cls/journal/cls_journal_client.h"
 
 #include "librbd/AsioEngine.h"
+#include "librbd/cache/ImageCache.h"
 #include "librbd/ExclusiveLock.h"
 #include "librbd/ImageCtx.h"
 #include "librbd/ImageState.h"
@@ -45,6 +46,7 @@
 #include "librbd/image/Types.h"
 #include "librbd/io/AioCompletion.h"
 #include "librbd/io/ImageRequest.h"
+#include "librbd/io/ImageDispatcherInterface.h"
 #include "librbd/io/ObjectDispatcherInterface.h"
 #include "librbd/io/ObjectRequest.h"
 #include "librbd/io/ReadResult.h"
@@ -1603,10 +1605,35 @@ int validate_pool(IoCtx &io_ctx, CephContext *cct) {
     C_SaferCond ctx;
     {
       std::shared_lock owner_locker{ictx->owner_lock};
-      ictx->io_object_dispatcher->invalidate_cache(&ctx);
+      ictx->io_image_dispatcher->invalidate_cache(&ctx);
     }
     r = ctx.wait();
+
+    if (r < 0) {
+      ldout(cct, 20) << "failed to invalidate image cache" << dendl;
+      return r;
+    }
+
+    C_SaferCond ctx2;
+    {
+      std::shared_lock owner_locker{ictx->owner_lock};
+      ictx->io_object_dispatcher->invalidate_cache(&ctx2);
+    }
+    r = ctx2.wait();
+
+    if (r < 0) {
+      ldout(cct, 20) << "failed to invalidate object cache" << dendl;
+      return r;
+    }
+
     ictx->perfcounter->inc(l_librbd_invalidate_cache);
+
+    // Delete writeback cache if it is not initialized
+    if (ictx->test_features(RBD_FEATURE_DIRTY_CACHE)) {
+	C_SaferCond ctx3;
+        cache::ImageCache<>::discard_cache(*ictx, &ctx3);
+	r = ctx3.wait();
+    }
     return r;
   }
 

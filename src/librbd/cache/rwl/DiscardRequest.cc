@@ -8,7 +8,11 @@
 #include "common/hostname.h"
 #include "librbd/asio/ContextWQ.h"
 #include "librbd/cache/rwl/DiscardRequest.h"
+
+#if defined(WITH_RBD_RWL)
 #include "librbd/cache/rwl/ImageCacheState.h"
+#endif // WITH_RBD_RWL
+
 #include "librbd/cache/Types.h"
 #include "librbd/io/ImageDispatcherInterface.h"
 #include "librbd/ImageCtx.h"
@@ -45,14 +49,19 @@ DiscardRequest<I>::DiscardRequest(
 
 template <typename I>
 void DiscardRequest<I>::send() {
+#if defined(WITH_RBD_RWL)
   if (m_image_ctx.io_image_dispatcher->dispatch_exist(
         io::IMAGE_DISPATCH_LAYER_WRITEBACK_CACHE)) {
     finish();
     return;
   }
   send_remove_feature_bit();
+#else
+  finish();
+#endif
 }
 
+#if defined(WITH_RBD_RWL)
 template <typename I>
 void DiscardRequest<I>::send_remove_feature_bit() {
   CephContext *cct = m_image_ctx.cct;
@@ -134,16 +143,17 @@ void DiscardRequest<I>::handle_remove_image_cache_state(int r) {
                << dendl;
     save_result(r);
   }
+
+  delete m_cache_state;
+  m_cache_state = nullptr;
   finish();
 }
+
+#endif // WITH_RBD_RWL
 
 template <typename I>
 void DiscardRequest<I>::finish() {
   m_on_finish->complete(m_error_result);
-  if (m_cache_state) {
-    delete m_cache_state;
-    m_cache_state = nullptr;
-  }
   delete this;
 }
 

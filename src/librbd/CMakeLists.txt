@@ -39,10 +39,12 @@ set(librbd_internal_srcs
   api/Snapshot.cc
   api/Trash.cc
   asio/ContextWQ.cc
+  cache/ImageCache.cc
   cache/ImageWriteback.cc
   cache/ObjectCacherObjectDispatch.cc
   cache/ObjectCacherWriteback.cc
   cache/PassthroughImageCache.cc
+  cache/rwl/DiscardRequest.cc
   cache/rwl/InitRequest.cc
   cache/rwl/ShutdownRequest.cc
   cache/WriteAroundObjectDispatch.cc

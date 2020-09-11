@@ -226,7 +226,8 @@ bool ImageDispatch<I>::preprocess_length(
   return false;
 }
 
-bool RWLImageDispatch<I>::invalidate_cache(Context* on_finish) {
+template <typename I>
+bool ImageDispatch<I>::invalidate_cache(Context* on_finish) {
   m_image_cache->invalidate(on_finish);
   return true;
 }

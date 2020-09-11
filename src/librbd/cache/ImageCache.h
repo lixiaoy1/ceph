@@ -53,6 +53,8 @@ public:
 
   virtual void invalidate(Context *on_finish) = 0;
   virtual void flush(Context *on_finish) = 0;
+
+  static void discard_cache(ImageCtxT &image_ctx, Context *ctx);
 };
 
 } // namespace cache

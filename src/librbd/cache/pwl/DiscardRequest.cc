@@ -49,9 +49,14 @@ DiscardRequest<I>::DiscardRequest(
 
 template <typename I>
 void DiscardRequest<I>::send() {
+#if defined(WITH_RBD_RWL)
   send_remove_feature_bit();
+#else
+  finish();
+#endif
 }
 
+#if defined(WITH_RBD_RWL)
 template <typename I>
 void DiscardRequest<I>::send_remove_feature_bit() {
   CephContext *cct = m_image_ctx.cct;
@@ -133,16 +138,17 @@ void DiscardRequest<I>::handle_remove_image_cache_state(int r) {
                << dendl;
     save_result(r);
   }
+
+  delete m_cache_state;
+  m_cache_state = nullptr;
   finish();
 }
+
+#endif // WITH_RBD_RWL
 
 template <typename I>
 void DiscardRequest<I>::finish() {
   m_on_finish->complete(m_error_result);
-  if (m_cache_state) {
-    delete m_cache_state;
-    m_cache_state = nullptr;
-  }
   delete this;
 }
 

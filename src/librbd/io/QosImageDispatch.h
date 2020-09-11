@@ -84,6 +84,10 @@ public:
       std::atomic<uint32_t>* image_dispatch_flags,
       DispatchResult* dispatch_result, Context* on_dispatched) override;
 
+  bool invalidate_cache(Context* on_finish) override {
+    return false;
+  }
+
   void handle_finished(int r, uint64_t tid) override;
 
 private:

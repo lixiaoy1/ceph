@@ -64,8 +64,8 @@ struct ImageDispatchInterface {
       std::atomic<uint32_t>* image_dispatch_flags,
       DispatchResult* dispatch_result, Context* on_dispatched) = 0;
 
+  virtual bool invalidate_cache(Context* on_finish) = 0;
   virtual void handle_finished(int r, uint64_t tid) = 0;
-
 };
 
 } // namespace io

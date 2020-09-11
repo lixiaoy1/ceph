@@ -215,6 +215,12 @@ bool RWLImageDispatch<I>::flush(
 }
 
 template <typename I>
+bool RWLImageDispatch<I>::invalidate_cache(Context* on_finish) {
+  m_image_cache->invalidate(on_finish);
+  return true;
+}
+
+template <typename I>
 void RWLImageDispatch<I>::handle_finished(int r, uint64_t tid) {
   auto cct = m_image_ctx->cct;
   ldout(cct, 20) << "tid=" << tid << dendl;

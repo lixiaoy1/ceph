@@ -30,6 +30,8 @@ public:
 
   virtual void finish(int r, ImageDispatchLayer image_dispatch_layer,
                       uint64_t tid) = 0;
+
+  virtual void invalidate_cache(Context* on_finish) = 0;
 };
 
 } // namespace io

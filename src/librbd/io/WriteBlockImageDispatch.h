@@ -103,6 +103,10 @@ private:
                   Context* on_dispatched);
   void flush_io(Context* on_finish);
 
+  bool invalidate_cache(Context* on_finish) override {
+    return false;
+  }
+
   void handle_blocked_writes(int r);
 
 };

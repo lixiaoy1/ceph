@@ -71,6 +71,10 @@ public:
     return false;
   }
 
+  bool invalidate_cache(Context* on_finish) override {
+    return false;
+  }
+
   void handle_finished(int r, uint64_t tid) override {};
 
 };

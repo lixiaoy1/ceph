@@ -100,6 +100,7 @@ public:
   std::atomic<uint32_t> image_dispatch_flags = 0;
   DispatchResult dispatch_result = DISPATCH_RESULT_INVALID;
 
+  ImageCtxT& image_ctx;
   AioCompletion* aio_comp;
   Extents image_extents;
   Request request;
@@ -179,6 +180,8 @@ public:
 
   bool is_write_op() const;
 
+  bool clip_request();
+
   void start_op();
 
   const Extents& get_image_extents() const;
@@ -193,6 +196,7 @@ public:
 private:
   struct SendVisitor;
   struct IsWriteOpVisitor;
+  struct ClipRequestVisitor;
   struct TokenRequestedVisitor;
 
   ImageDispatchSpec(ImageCtxT& image_ctx,
@@ -201,9 +205,10 @@ private:
                     Request&& request, int op_flags,
                     const ZTracer::Trace& parent_trace, uint64_t tid)
     : dispatcher_ctx(this), image_dispatcher(image_ctx.io_image_dispatcher),
-      dispatch_layer(image_dispatch_layer), aio_comp(aio_comp),
-      image_extents(std::move(image_extents)), request(std::move(request)),
-      op_flags(op_flags), parent_trace(parent_trace), tid(tid) {
+      dispatch_layer(image_dispatch_layer), image_ctx(image_ctx),
+      aio_comp(aio_comp), image_extents(std::move(image_extents)),
+      request(std::move(request)), op_flags(op_flags),
+      parent_trace(parent_trace), tid(tid) {
     aio_comp->image_dispatcher_ctx = &dispatcher_ctx;
     aio_comp->get();
   }

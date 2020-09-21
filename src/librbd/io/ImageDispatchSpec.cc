@@ -6,6 +6,7 @@
 #include "librbd/io/AioCompletion.h"
 #include "librbd/io/ImageRequest.h"
 #include "librbd/io/ImageDispatcherInterface.h"
+#include "librbd/io/Utils.h"
 #include <boost/variant.hpp>
 
 namespace librbd {
@@ -57,7 +58,60 @@ struct ImageDispatchSpec<I>::IsWriteOpVisitor
 };
 
 template <typename I>
+struct ImageDispatchSpec<I>::ClipRequestVisitor
+  : public boost::static_visitor<bool> {
+  ImageDispatchSpec<I>* spec;
+
+  ClipRequestVisitor(ImageDispatchSpec<I>* image_dispatch_spec)
+    :spec(image_dispatch_spec) {
+  }
+
+  bool operator()(const Read&) const {
+    auto total_bytes = spec->extents_length();
+    if (total_bytes == 0) {
+      spec->dispatch_result = DISPATCH_RESULT_COMPLETE;
+      spec->aio_comp->set_request_count(0);
+      return true;
+    }
+
+    return false;
+  }
+
+  bool operator()(const Flush&) const {
+    return false;
+  }
+
+  template <typename T>
+  bool operator()(const T&) const {
+    // check readonly
+    std::shared_lock image_locker{spec->image_ctx.image_lock};
+    if (spec->image_ctx.snap_id != CEPH_NOSNAP || spec->image_ctx.read_only) {
+      spec->fail(-EROFS);
+      return true;
+    }
+
+    auto total_bytes = spec->extents_length();
+    if (total_bytes == 0) {
+      spec->dispatch_result = DISPATCH_RESULT_COMPLETE;
+      spec->aio_comp->set_request_count(0);
+      return true;
+    }
+    return false;
+  }
+};
+
+template <typename I>
 void ImageDispatchSpec<I>::send() {
+  int r = util::clip_request(&image_ctx, image_extents);
+  if (r < 0) {
+    fail(r);
+    return;
+  }
+
+  bool finished = clip_request();
+  if (finished) {
+    return;
+  }
   image_dispatcher->send(this);
 }
 
@@ -97,6 +151,11 @@ uint64_t ImageDispatchSpec<I>::get_tid() {
 template <typename I>
 bool ImageDispatchSpec<I>::is_write_op() const {
   return boost::apply_visitor(IsWriteOpVisitor(), request);
+}
+
+template <typename I>
+bool ImageDispatchSpec<I>::clip_request() {
+  return boost::apply_visitor(ClipRequestVisitor{this}, request);
 }
 
 template <typename I>

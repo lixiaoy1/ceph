@@ -230,46 +230,12 @@ void ImageRequest<I>::send() {
   ldout(cct, 20) << get_request_type() << ": ictx=" << &image_ctx << ", "
                  << "completion=" << aio_comp << dendl;
 
-  int r = clip_request();
-  if (r < 0) {
-    m_aio_comp->fail(r);
-    return;
-  }
-
-  if (finish_request_early()) {
-    return;
-  }
-
   if (m_bypass_image_cache || m_image_ctx.image_cache == nullptr) {
     update_timestamp();
     send_request();
   } else {
     send_image_cache_request();
   }
-}
-
-template <typename I>
-int ImageRequest<I>::clip_request() {
-  std::shared_lock image_locker{m_image_ctx.image_lock};
-  for (auto &image_extent : m_image_extents) {
-    auto clip_len = image_extent.second;
-    int r = clip_io(get_image_ctx(&m_image_ctx), image_extent.first, &clip_len);
-    if (r < 0) {
-      return r;
-    }
-
-    image_extent.second = clip_len;
-  }
-  return 0;
-}
-
-template <typename I>
-uint64_t ImageRequest<I>::get_total_length() const {
-  uint64_t total_bytes = 0;
-  for (auto& image_extent : this->m_image_extents) {
-    total_bytes += image_extent.second;
-  }
-  return total_bytes;
 }
 
 template <typename I>
@@ -333,33 +299,8 @@ ImageReadRequest<I>::ImageReadRequest(I &image_ctx, AioCompletion *aio_comp,
 		    parent_trace),
     m_op_flags(op_flags) {
   aio_comp->read_result = std::move(read_result);
-}
-
-template <typename I>
-int ImageReadRequest<I>::clip_request() {
-  int r = ImageRequest<I>::clip_request();
-  if (r < 0) {
-    return r;
-  }
-
-  uint64_t buffer_length = 0;
-  auto &image_extents = this->m_image_extents;
-  for (auto &image_extent : image_extents) {
-    buffer_length += image_extent.second;
-  }
-  this->m_aio_comp->read_result.set_clip_length(buffer_length);
-  return 0;
-}
-
-template <typename I>
-bool ImageReadRequest<I>::finish_request_early() {
-  auto total_bytes = this->get_total_length();
-  if (total_bytes == 0) {
-    auto *aio_comp = this->m_aio_comp;
-    aio_comp->set_request_count(0);
-    return true;
-  }
-  return false;
+  uint64_t length = util::extents_length(this->m_image_extents);
+  aio_comp->read_result.set_clip_length(length);
 }
 
 template <typename I>
@@ -428,24 +369,6 @@ void ImageReadRequest<I>::send_image_cache_request() {
   image_ctx.image_cache->aio_read(std::move(this->m_image_extents),
                                   &req_comp->bl, m_op_flags,
                                   req_comp);
-}
-
-template <typename I>
-bool AbstractImageWriteRequest<I>::finish_request_early() {
-  AioCompletion *aio_comp = this->m_aio_comp;
-  {
-    std::shared_lock image_locker{this->m_image_ctx.image_lock};
-    if (this->m_image_ctx.snap_id != CEPH_NOSNAP || this->m_image_ctx.read_only) {
-      aio_comp->fail(-EROFS);
-      return true;
-    }
-  }
-  auto total_bytes = this->get_total_length();
-  if (total_bytes == 0) {
-    aio_comp->set_request_count(0);
-    return true;
-  }
-  return false;
 }
 
 template <typename I>

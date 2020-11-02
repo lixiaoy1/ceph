@@ -5,10 +5,6 @@ set(librbd_types_srcs
   watcher/Types.cc
   WatchNotifyTypes.cc)
 
-if(WITH_RBD_RWL OR WITH_RBD_SSD_CACHE)
- list(APPEND librbd_types_srcs cache/pwl/Types.cc)
-endif()
-
 add_library(rbd_types STATIC
   ${librbd_types_srcs})
 
@@ -49,9 +45,6 @@ set(librbd_internal_srcs
   cache/ImageWriteback.cc
   cache/ObjectCacherObjectDispatch.cc
   cache/ObjectCacherWriteback.cc
-  cache/pwl/DiscardRequest.cc
-  cache/pwl/InitRequest.cc
-  cache/pwl/ShutdownRequest.cc
   cache/Utils.cc
   cache/WriteAroundObjectDispatch.cc
   crypto/BlockCrypto.cc
@@ -195,30 +188,6 @@ if(WITH_EVENTTRACE)
   list(APPEND librbd_internal_srcs ../common/EventTrace.cc)
 endif()
 
-if(WITH_RBD_RWL OR WITH_RBD_SSD_CACHE)
-  set(librbd_internal_srcs
-    ${librbd_internal_srcs}
-    cache/pwl/ImageCacheState.cc
-    cache/pwl/LogEntry.cc
-    cache/pwl/LogMap.cc
-    cache/pwl/LogOperation.cc
-    cache/pwl/ReadRequest.cc
-    cache/pwl/Request.cc
-    cache/pwl/SyncPoint.cc
-    cache/pwl/AbstractWriteLog.cc
-    cache/WriteLogImageDispatch.cc)
-  if(WITH_RBD_RWL)
-    set(librbd_internal_srcs
-      ${librbd_internal_srcs}
-      cache/pwl/ReplicatedWriteLog.cc)
-  endif()
-  if(WITH_RBD_SSD_CACHE)
-    set(librbd_internal_srcs
-      ${librbd_internal_srcs}
-       cache/pwl/SSDWriteLog.cc)
-  endif()
-endif()
-
 add_library(rbd_api STATIC librbd.cc)
 add_library(rbd_internal STATIC
   ${librbd_internal_srcs}
@@ -236,16 +205,6 @@ target_link_libraries(rbd_internal PRIVATE
   osdc rbd_types)
 target_include_directories(rbd_internal PRIVATE ${OPENSSL_INCLUDE_DIR})
 
-if(WITH_RBD_RWL OR WITH_RBD_SSD_CACHE)
-  target_link_libraries(rbd_internal
-    PUBLIC blk)
-  target_link_libraries(rbd_internal PRIVATE
-    StdFilesystem::filesystem)
-endif()
-if(WITH_RBD_RWL)
-  target_link_libraries(rbd_types
-    PUBLIC blk)
-endif()
 add_custom_target(librbd_plugins)
 set(librbd_plugins_dir ${CEPH_INSTALL_PKGLIBDIR}/librbd)
 
@@ -264,6 +223,45 @@ set_target_properties(librbd_plugin_parent_cache PROPERTIES
   SOVERSION 1)
 install(TARGETS librbd_plugin_parent_cache DESTINATION ${librbd_plugins_dir})
 add_dependencies(librbd_plugins librbd_plugin_parent_cache)
+
+set(rbd_plugin_writelog_image_cache_srcs
+  cache/WriteLogImageDispatch.cc
+  cache/ImageWriteback.cc
+  cache/pwl/DiscardRequest.cc
+  cache/pwl/InitRequest.cc
+  cache/pwl/ShutdownRequest.cc
+  cache/pwl/Types.cc
+  cache/pwl/ImageCacheState.cc
+  cache/pwl/LogEntry.cc
+  cache/pwl/LogMap.cc
+  cache/pwl/LogOperation.cc
+  cache/pwl/ReadRequest.cc
+  cache/pwl/Request.cc
+  cache/pwl/SyncPoint.cc
+  cache/pwl/AbstractWriteLog.cc)
+
+  if(WITH_RBD_RWL)
+    set(rbd_plugin_writelog_image_cache_srcs
+      cache/pwl/ReplicatedWriteLog.cc)
+  endif()
+  if(WITH_RBD_SSD_CACHE)
+    set(rbd_plugin_writelog_image_cache_srcs
+       cache/pwl/SSDWriteLog.cc)
+  endif()
+
+add_library(librbd_plugin_writelog_image_cache SHARED
+  ${rbd_plugin_writelog_image_cache_srcs})
+target_link_libraries(librbd_plugin_writelog_image_cache PRIVATE
+  blk StdFilesystem::filesystem
+  ceph-common librbd
+  libneorados
+  librados)
+set_target_properties(librbd_plugin_writelog_image_cache PROPERTIES
+  OUTPUT_NAME ceph_writelog_image_cache_lib
+  VERSION 1.0.0
+  SOVERSION 1)
+install(TARGETS librbd_plugin_writelog_image_cache DESTINATION ${librbd_plugins_dir})
+add_dependencies(librbd_plugins librbd_plugin_writelog_image_cache)
 
 add_library(librbd ${CEPH_SHARED}
   librbd.cc)

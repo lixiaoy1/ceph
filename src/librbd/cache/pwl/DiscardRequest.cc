@@ -7,7 +7,6 @@
 #include "librbd/asio/ContextWQ.h"
 #include "librbd/cache/pwl/DiscardRequest.h"
 
-#if defined(WITH_RBD_RWL)
 #if __has_include(<filesystem>)
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -17,7 +16,6 @@ namespace fs = std::experimental::filesystem;
 #endif
 
 #include "librbd/cache/pwl/ImageCacheState.h"
-#endif // WITH_RBD_RWL
 
 #include "librbd/cache/Types.h"
 #include "librbd/io/ImageDispatcherInterface.h"
@@ -55,14 +53,9 @@ DiscardRequest<I>::DiscardRequest(
 
 template <typename I>
 void DiscardRequest<I>::send() {
-#if defined(WITH_RBD_RWL)
   delete_image_cache_file();
-#else
-  finish();
-#endif
 }
 
-#if defined(WITH_RBD_RWL)
 template <typename I>
 void DiscardRequest<I>::delete_image_cache_file() {
   CephContext *cct = m_image_ctx.cct;
@@ -147,8 +140,6 @@ void DiscardRequest<I>::handle_remove_feature_bit(int r) {
   }
   finish();
 }
-
-#endif // WITH_RBD_RWL
 
 template <typename I>
 void DiscardRequest<I>::finish() {

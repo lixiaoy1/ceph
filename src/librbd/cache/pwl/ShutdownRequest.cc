@@ -10,9 +10,7 @@
 #include "librbd/asio/ContextWQ.h"
 #include "librbd/cache/Types.h"
 
-#if defined(WITH_RBD_RWL)
 #include "librbd/cache/pwl/AbstractWriteLog.h"
-#endif // WITH_RBD_RWL
 
 #define dout_subsys ceph_subsys_rbd_pwl
 #undef dout_prefix
@@ -47,14 +45,9 @@ ShutdownRequest<I>::ShutdownRequest(
 
 template <typename I>
 void ShutdownRequest<I>::send() {
-#if defined(WITH_RBD_RWL)
   send_shutdown_image_cache();
-#else
-  finish();
-#endif // WITH_RBD_RWL
 }
 
-#if defined(WITH_RBD_RWL)
 template <typename I>
 void ShutdownRequest<I>::send_shutdown_image_cache() {
   CephContext *cct = m_image_ctx.cct;
@@ -150,8 +143,6 @@ void ShutdownRequest<I>::handle_remove_image_cache_state(int r) {
   }
   finish();
 }
-
-#endif // WITH_RBD_RWL
 
 template <typename I>
 void ShutdownRequest<I>::finish() {

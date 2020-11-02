@@ -14,8 +14,11 @@ namespace plugin {
 
 template <typename> struct Api;
 
+template <typename ImageCtxT>
 struct HookPoints {
-  // TODO later commits will add support for exclusive-lock hook points
+
+  virtual void start(ImageCtxT* image_ctx, Context* on_finish);
+  virtual void shutdown(ImageCtxT* image_ctx, Context* on_finish);
 };
 
 template <typename ImageCtxT>
@@ -24,7 +27,7 @@ struct Interface : public ceph::Plugin {
   }
 
   virtual void init(ImageCtxT* image_ctx, Api<ImageCtxT>& api,
-                    HookPoints* hook_points, Context* on_finish) = 0;
+                    HookPoints<ImageCtxT>* hook_points, Context* on_finish) = 0;
 };
 
 } // namespace plugin

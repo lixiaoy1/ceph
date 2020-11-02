@@ -49,7 +49,7 @@ private:
    *      |            *    *
    *      |            *    *
    *      v            *    *
-   *  OPEN_IMAGE_CACHE *    *
+   *  OPEN_HOOK_POINTS *    *
    *      |         *  *    *
    *      |         *  *    *
    *      |         v  v    v
@@ -95,11 +95,11 @@ private:
   void send_close_object_map();
   void handle_close_object_map(int r);
 
-  void send_open_image_cache();
-  void handle_open_image_cache(int r);
+  void send_start_hook_points();
+  void handle_start_hook_points(int r);
 
-  void send_close_image_cache();
-  void handle_close_image_cache(int r);
+  void send_close_hook_points();
+  void handle_close_hook_points(int r);
 
   void apply();
   void revert();

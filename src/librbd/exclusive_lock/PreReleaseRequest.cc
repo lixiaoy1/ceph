@@ -17,6 +17,7 @@
 #include "librbd/io/ImageDispatcherInterface.h"
 #include "librbd/io/ObjectDispatcherInterface.h"
 #include "librbd/io/Types.h"
+#include "librbd/PluginRegistry.h"
 
 #define dout_subsys ceph_subsys_rbd
 #undef dout_prefix
@@ -142,7 +143,7 @@ void PreReleaseRequest<I>::handle_wait_for_ops(int r) {
 template <typename I>
 void PreReleaseRequest<I>::send_prepare_lock() {
   if (m_shutting_down) {
-    send_shut_down_image_cache();
+    send_shut_down_hook_points();
     return;
   }
 
@@ -160,24 +161,23 @@ void PreReleaseRequest<I>::handle_prepare_lock(int r) {
   CephContext *cct = m_image_ctx.cct;
   ldout(cct, 10) << "r=" << r << dendl;
 
-  send_shut_down_image_cache();
+  send_shut_down_hook_points();
 }
 
 template <typename I>
-void PreReleaseRequest<I>::send_shut_down_image_cache() {
+void PreReleaseRequest<I>::send_shut_down_hook_points() {
   CephContext *cct = m_image_ctx.cct;
   ldout(cct, 10) << dendl;
 
   std::shared_lock owner_lock{m_image_ctx.owner_lock};
   Context *ctx = create_async_context_callback(m_image_ctx, create_context_callback<
       PreReleaseRequest<I>,
-      &PreReleaseRequest<I>::handle_shut_down_image_cache>(this));
-  m_image_ctx.io_image_dispatcher->shut_down_dispatch(
-    io::IMAGE_DISPATCH_LAYER_WRITEBACK_CACHE, ctx);
+      &PreReleaseRequest<I>::handle_shut_down_hook_points>(this));
+  m_image_ctx.plugin_registry->shutdown_hook(ctx);
 }
 
 template <typename I>
-void PreReleaseRequest<I>::handle_shut_down_image_cache(int r) {
+void PreReleaseRequest<I>::handle_shut_down_hook_points(int r) {
   CephContext *cct = m_image_ctx.cct;
   ldout(cct, 10) << "r=" << r << dendl;
 

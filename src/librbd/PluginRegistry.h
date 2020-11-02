@@ -25,8 +25,11 @@ public:
 
   void init(const std::string& plugins, Context* on_finish);
 
+  void start_hook(Context* on_finish);
+  void shutdown_hook(Context* on_finish);
+
 private:
-  typedef std::list<plugin::HookPoints> PluginHookPoints;
+  typedef std::list<plugin::HookPoints<ImageCtxT>> PluginHookPoints;
 
   ImageCtxT* m_image_ctx;
   std::unique_ptr<plugin::Api<ImageCtxT>> m_plugin_api;

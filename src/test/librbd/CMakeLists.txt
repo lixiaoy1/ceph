@@ -53,6 +53,8 @@ set(unittest_librbd_srcs
   test_mock_Watcher.cc
   cache/test_mock_WriteAroundObjectDispatch.cc
   cache/test_mock_ParentCacheObjectDispatch.cc
+  cache/pwl/test_mock_ReplicatedWriteLog.cc
+  cache/pwl/test_WriteLogMap.cc
   crypto/test_mock_BlockCrypto.cc
   crypto/test_mock_CryptoContextPool.cc
   crypto/test_mock_CryptoObjectDispatch.cc
@@ -122,13 +124,6 @@ set(unittest_librbd_srcs
   watcher/test_mock_RewatchRequest.cc
   )
 
-if(WITH_RBD_RWL)
-   set(unittest_librbd_srcs
-     ${unittest_librbd_srcs}
-     cache/pwl/test_mock_ReplicatedWriteLog.cc
-     cache/pwl/test_WriteLogMap.cc)
-endif(WITH_RBD_RWL)
-
 add_executable(unittest_librbd
   ${unittest_librbd_srcs}
   $<TARGET_OBJECTS:common_texttable_obj>)
@@ -151,6 +146,7 @@ target_link_libraries(unittest_librbd
   rados_test_stub
   librados
   ceph_immutable_object_cache_lib
+  ceph_writelog_image_cache_lib
   osdc
   ceph-common
   global

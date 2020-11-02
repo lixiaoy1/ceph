@@ -53,6 +53,30 @@ void PluginRegistry<I>::init(const std::string& plugins, Context* on_finish) {
   gather_ctx->activate();
 }
 
+template <typename I>
+void PluginRegistry<I>::start_hook(Context* on_finish) {
+  auto cct = m_image_ctx->cct;
+  auto gather_ctx = new C_Gather(cct, on_finish);
+
+  for (auto hook : m_plugin_hook_points) {
+    auto ctx = gather_ctx->new_sub();
+    hook.start(m_image_ctx, ctx);
+  }
+  gather_ctx->activate();
+}
+
+template <typename I>
+void PluginRegistry<I>::shutdown_hook(Context* on_finish) {
+    auto cct = m_image_ctx->cct;
+  auto gather_ctx = new C_Gather(cct, on_finish);
+
+  for (auto hook : m_plugin_hook_points) {
+    auto ctx = gather_ctx->new_sub();
+    hook.shutdown(m_image_ctx, ctx);
+  }
+  gather_ctx->activate();
+}
+
 } // namespace librbd
 
 template class librbd::PluginRegistry<librbd::ImageCtx>;

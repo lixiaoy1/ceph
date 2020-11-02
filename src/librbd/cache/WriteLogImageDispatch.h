@@ -24,8 +24,13 @@ namespace pwl { template <typename> class AbstractWriteLog; }
 template <typename ImageCtxT>
 class WriteLogImageDispatch : public io::ImageDispatchInterface {
 public:
+  static WriteLogImageDispatch* create(ImageCtxT* image_ctx,
+                                       plugin::Api<ImageCtxT>& plugin_api) {
+    return new WriteLogImageDispatch(image_ctx, plugin_api);
+  }
+
   WriteLogImageDispatch(ImageCtxT* image_ctx,
-                        pwl::AbstractWriteLog<ImageCtx> *image_cache) :
+                        plugin::Api<ImageCtxT>& plugin_api) :
     m_image_ctx(image_ctx), m_image_cache(image_cache) {
   }
 

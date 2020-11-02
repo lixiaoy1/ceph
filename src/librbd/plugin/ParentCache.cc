@@ -33,7 +33,7 @@ namespace librbd {
 namespace plugin {
 
 template <typename I>
-void ParentCache<I>::init(I* image_ctx, Api<I>& api, HookPoints* hook_points,
+void ParentCache<I>::init(I* image_ctx, Api<I>& api, HookPoints<I>* hook_points,
                           Context* on_finish) {
   m_image_ctx = image_ctx;
   bool parent_cache_enabled = m_image_ctx->config.template get_val<bool>(
